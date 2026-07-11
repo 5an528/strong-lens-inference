@@ -56,7 +56,10 @@ BACKGROUND_RMS = 0.10   # Gaussian sky/read noise standard deviation per pixel.
 # ----------------------------------------------------------------------------
 LENS_CENTER_X = 0.0   # lens galaxy centroid, assumed known from the lens light.
 LENS_CENTER_Y = 0.0
-SOURCE_AMP = 20.0     # source surface-brightness amplitude -- sets the SNR.
+# TUNED (was 20.0, which gave median peak SNR ~4 -- well below the
+# assignment's 10-30 target). 150.0 puts the median at ~16 (range ~6-21);
+# see the amplitude-vs-SNR sweep in RESULTS.md.
+SOURCE_AMP = 150.0    # source surface-brightness amplitude -- sets the SNR.
 SOURCE_N = 2.0        # source Sersic index (shape of the light profile), fixed.
 SOURCE_E1 = 0.05      # source-light ellipticity, fixed (only the LENS mass
 SOURCE_E2 = -0.05     # ellipticity e1/e2 below is inferred, not this one).
@@ -64,8 +67,8 @@ SOURCE_E2 = -0.05     # ellipticity e1/e2 below is inferred, not this one).
 # Rough scale used only to bring pixel values near O(1) before they enter the
 # CNN. BatchNorm inside the network absorbs any remaining mis-scaling, so the
 # exact number is not critical -- it just avoids feeding the network values
-# in the thousands.
-IMAGE_SCALE = 0.5
+# in the thousands. Scaled up with SOURCE_AMP (peak pixel is now ~3).
+IMAGE_SCALE = 4.0
 
 # ----------------------------------------------------------------------------
 # 4. WHAT WE INFER -> theta.
@@ -138,8 +141,12 @@ PRIOR = {
 #    assignment's suggested budget is 1e4-1e5 simulations; if you have access
 #    to a faster machine (or just want to let it run overnight) raise these.
 # ----------------------------------------------------------------------------
-N_TRAIN = 8000     # start here on a laptop; try 20000-50000 if you have time.
-N_VAL = 1000
+# RAISED from 8000/1000 (the bare minimum of the assignment's 1e4-1e5
+# budget) now that training runs on GPU -- the extra cost is only ~10-20
+# min of CPU simulation, and more data reduces the overfitting seen in the
+# 8000-sample runs (see RESULTS.md).
+N_TRAIN = 20000
+N_VAL = 2000
 N_TEST = 300       # held-out set used only for the recovery/calibration plots.
 
 # How many CPU processes to use while precomputing the dataset (the lens

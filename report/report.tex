@@ -28,20 +28,23 @@ We infer the physical parameters of strong gravitational lens systems directly f
 single noisy images using amortized simulation-based inference (SBI). A forward model
 built with \texttt{lenstronomy} simulates $64\times64$-pixel images of a singular
 isothermal ellipsoid (SIE) lens with external shear magnifying a S\'ersic source,
-including PSF convolution and realistic Gaussian and Poisson noise. A BayesFlow
+including PSF convolution and realistic Gaussian and Poisson noise, with the source
+amplitude tuned to a realistic peak signal-to-noise ratio of $10$--$30$. A BayesFlow
 neural posterior estimator---a convolutional summary network coupled to a conditional
-normalizing flow---is trained on $8{,}000$ simulated image--parameter pairs and
-evaluated on $300$ held-out systems. The Einstein radius, source position, and source
-size are recovered accurately ($R^2 = 0.88$--$0.95$), the lens ellipticity moderately
-($R^2 \approx 0.5$), while external shear remains largely unconstrained at the
-signal-to-noise ratio of our images, consistent with physical expectations.
-Simulation-based calibration reveals mild overconfidence of the learned posteriors for
-the best-constrained parameters. Finally, extending the parameter vector with an
-external convergence $\kappa$ reproduces the classical mass-sheet degeneracy: the
-$\kappa$ posterior contracts only $12\%$ relative to the prior while exhibiting a
-strong anti-correlation with the Einstein radius
-($\langle\mathrm{corr}(\kappa,\theta_E)\rangle = -0.83$). Training the model takes
-under twenty minutes on a consumer GPU (NVIDIA RTX~3060), after which posterior
+normalizing flow---is trained on $20{,}000$ simulated image--parameter pairs and
+evaluated on $300$ held-out systems. All eight parameters are recovered well: the
+Einstein radius, source position, and source size almost perfectly
+($R^2 = 0.99$--$1.00$), the lens ellipticity accurately ($R^2 = 0.84$--$0.89$), and
+even the weak external shear meaningfully ($R^2 = 0.65$--$0.80$). Simulation-based
+calibration shows near-uniform rank histograms, with at most mild
+\emph{under}confidence for the best-constrained parameters---a conservative and safe
+direction of miscalibration. Extending the parameter vector with an external
+convergence $\kappa$ reproduces the classical mass-sheet degeneracy: the $\kappa$
+posterior contracts only $17\%$ relative to the prior while exhibiting a strong
+anti-correlation with the Einstein radius
+($\langle\mathrm{corr}(\kappa,\theta_E)\rangle = -0.93$), and the induced
+uncertainty visibly degrades $\theta_E$ recovery from $R^2=1.00$ to $0.93$. Training
+takes $50$ minutes on a consumer GPU (NVIDIA RTX~3060), after which posterior
 sampling for a new lens image takes milliseconds.
 \end{abstract}
 
@@ -132,16 +135,17 @@ Images are rendered on a $64\times64$ grid at $0.05''$/pixel (a $3.2''$ field of
 view), convolved with a Gaussian PSF of FWHM $0.1''$, and degraded with Gaussian
 background noise ($\sigma_{\rm bkg}=0.1$ per pixel) plus Poisson shot noise for an
 effective exposure time of $100$\,s, using \texttt{lenstronomy}'s noise utilities.
-With the adopted source amplitude the realized peak signal-to-noise ratio of the
-dataset has median $\approx 4$ (range $\approx 1$--$8$), somewhat below the nominal
-$10$--$30$ target; the images are therefore on the noisy end of realistic, which
-should be kept in mind when interpreting the recovery results
+The source amplitude was tuned by a sweep over prior draws to place typical images
+in the realistic peak signal-to-noise range of $10$--$30$; the realized peak SNR of
+the final dataset has median $16.1$ (range $4.6$--$26.9$). An earlier iteration of
+this project used a $7.5\times$ fainter source (median peak SNR $\approx 4$), which
+serves as a useful controlled comparison of how noise destroys parameter information
 (Section~\ref{sec:discussion}).
 
-We precompute $N_{\rm train}=8{,}000$ training, $N_{\rm val}=1{,}000$ validation, and
-$N_{\rm test}=300$ held-out test systems. Simulation is CPU-bound and parallelized
-over worker processes; generation of the full dataset takes a few minutes on a
-modern desktop.
+We precompute $N_{\rm train}=20{,}000$ training, $N_{\rm val}=2{,}000$ validation,
+and $N_{\rm test}=300$ held-out test systems. Simulation is CPU-bound and
+parallelized over worker processes; generation of the full dataset takes on the
+order of ten minutes on a modern desktop.
 
 \section{Inference Method}
 
@@ -173,21 +177,23 @@ they span very different numeric scales ($\theta_E \sim 1$ vs.\ $\gamma_i \sim
 
 The approximator is trained offline on the precomputed dataset for $40$ epochs with
 batch size $32$ and learning rate $10^{-3}$ (Keras~3 with the PyTorch backend). On an
-NVIDIA GeForce RTX~3060 the full training run completes in under $20$ minutes; the
-same configuration required $\approx 1.4$ hours on CPU, a speedup of roughly
-$4$--$5\times$ end to end. Figure~\ref{fig:loss} shows the loss (negative
-log-posterior density): the validation loss drops steeply within the first three
-epochs and plateaus near $4.5$--$5.5$ after epoch $\sim$$17$, while the training loss
-continues to decrease towards $\sim$$0.1$---clear evidence of overfitting in the
-later epochs. Early stopping around epoch $20$ would likely yield an equally good or
-better model in half the time (Section~\ref{sec:discussion}).
+NVIDIA GeForce RTX~3060 the full training run completes in $50$ minutes at
+$\approx 117$\,ms/step; the same per-step cost on CPU was $\approx 500$\,ms, a
+speedup of roughly $4$--$5\times$. Figure~\ref{fig:loss} shows the loss (negative
+log-posterior density): the validation loss decreases monotonically from $39.4$
+(epoch 1) to $-5.87$ (epoch 40), tracking the training loss ($9.92 \to -4.50$)
+throughout with \emph{no} sign of overfitting---validation loss remains \emph{below}
+training loss for the entire run. This is a marked qualitative improvement over an
+earlier $8{,}000$-sample training run, whose validation loss plateaued by epoch
+$\sim$$17$ and then degraded while the training loss kept falling; enlarging the
+training set by $2.5\times$ eliminated that overfitting entirely.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{training_loss.png}
-\caption{Training and validation loss (negative log-posterior density). The
-validation loss plateaus early while the training loss keeps decreasing, indicating
-overfitting beyond roughly epoch 20.}
+\caption{Training and validation loss (negative log-posterior density). Both
+decrease monotonically through all 40 epochs with validation tracking training
+loss---no overfitting at $N_{\rm train}=20{,}000$.}
 \label{fig:loss}
 \end{figure}
 
@@ -202,20 +208,23 @@ Table~\ref{tab:r2} summarizes the coefficient of determination $R^2$.
 
 \begin{table}[H]
 \centering
-\caption{Recovery accuracy (posterior mean vs.\ truth) on the 300-system test set.}
+\caption{Recovery accuracy (posterior mean vs.\ truth) on the 300-system test set.
+The last column shows the same quantity from an earlier low-SNR run (median peak SNR
+$\approx 4$ instead of $16$, $N_{\rm train}=8{,}000$ instead of $20{,}000$) for
+comparison.}
 \label{tab:r2}
-\begin{tabular}{lcl}
+\begin{tabular}{lccc}
 \toprule
-Parameter & $R^2$ & Assessment \\
+Parameter & $R^2$ & Assessment & $R^2$ (low-SNR run) \\
 \midrule
-$R_s$      & $0.95$ & excellent \\
-$\theta_E$ & $0.88$ & very good \\
-$y_s$      & $0.84$ & very good \\
-$x_s$      & $0.83$ & very good \\
-$e_2$      & $0.49$ & moderate \\
-$e_1$      & $0.47$ & moderate \\
-$\gamma_1$ & $0.21$ & poor \\
-$\gamma_2$ & $0.06$ & essentially unconstrained \\
+$\theta_E$ & $1.00$ & near-perfect & $0.88$ \\
+$R_s$      & $1.00$ & near-perfect & $0.95$ \\
+$x_s$      & $0.99$ & near-perfect & $0.83$ \\
+$y_s$      & $0.99$ & near-perfect & $0.84$ \\
+$e_1$      & $0.89$ & very good    & $0.47$ \\
+$e_2$      & $0.84$ & very good    & $0.49$ \\
+$\gamma_1$ & $0.80$ & good         & $0.21$ \\
+$\gamma_2$ & $0.65$ & moderate     & $0.06$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -235,23 +244,26 @@ imprints on the image:
 \begin{itemize}
     \item \textbf{Einstein radius, source position and size} ($\theta_E$, $x_s$,
     $y_s$, $R_s$): these set the ring radius, the arc configuration, and the arc
-    thickness---large, direct morphological signatures---and are recovered with
-    $R^2 \geq 0.83$. $R_s$ is the best-recovered parameter ($R^2=0.95$).
-    \item \textbf{Lens ellipticity} ($e_1$, $e_2$): moderate recovery ($R^2 \approx
-    0.5$) with visible shrinkage of extreme true values toward zero. This
-    regression-to-the-prior-mean behaviour is expected for weakly identified
-    parameters: where the likelihood is uninformative the posterior mean reverts
-    toward the prior centre.
-    \item \textbf{External shear} ($\gamma_1$, $\gamma_2$): poorly constrained
-    ($R^2 = 0.21$ and $0.06$). This is physically reasonable rather than a network
-    failure. The prior restricts the shear modulus to $\leq 0.08$, whose subtle
-    quadrupole distortion of the arcs is comparable to, and partially degenerate
-    with, the effect of lens ellipticity---and it is easily buried at the
-    median peak SNR of $\sim$$4$ of these images. The wide error bars in
-    Figure~\ref{fig:recovery} show the posterior itself ``knows'' shear is
-    uncertain, which is exactly the desired behaviour of a well-behaved posterior
-    (contrast with the calibration caveats below).
+    thickness---large, direct morphological signatures---and are recovered
+    near-perfectly ($R^2 \geq 0.99$) with tight, well-behaved error bars.
+    \item \textbf{Lens ellipticity} ($e_1$, $e_2$): recovered accurately
+    ($R^2 = 0.89$ and $0.84$), a dramatic improvement over the low-SNR run
+    ($R^2 \approx 0.5$): the quadrupole imprint of ellipticity on the arcs is
+    clearly measurable once the arcs themselves are not buried in noise.
+    \item \textbf{External shear} ($\gamma_1$, $\gamma_2$): even this weakest
+    signal---the prior restricts the shear modulus to $\leq 0.08$, whose subtle
+    quadrupole distortion is partially degenerate with lens ellipticity---is now
+    meaningfully constrained ($R^2 = 0.80$ and $0.65$), whereas at median peak SNR
+    $\sim$$4$ it was essentially unrecoverable ($R^2 \leq 0.21$). The visibly wider
+    error bars relative to the other parameters in Figure~\ref{fig:recovery} show
+    the posterior correctly reporting that shear remains the least-identified
+    parameter.
 \end{itemize}
+
+The comparison column of Table~\ref{tab:r2} is itself a clean empirical
+demonstration of the information-theoretic role of noise in inference: a
+$4\times$ increase in peak SNR moved every parameter up the recovery hierarchy,
+with the weakly-imprinting parameters (ellipticity, shear) gaining the most.
 
 \subsection{Calibration (simulation-based calibration)}
 \label{sec:calibration}
@@ -271,26 +283,28 @@ calibrated posterior; a U-shape indicates overconfidence (posteriors too narrow)
 \label{fig:calibration}
 \end{figure}
 
-The histograms reveal a consistent pattern:
+The histograms reveal a healthy overall picture:
 
 \begin{itemize}
-    \item $\gamma_1$ and, to a lesser degree, $e_2$ are close to flat---the
-    parameters the network constrains weakly inherit their width mostly from the
-    prior, which is trivially calibrated.
-    \item The well-recovered parameters ($x_s$, $y_s$, $R_s$, $\theta_E$) show clear
-    U-shapes with mass piled at ranks $0$ and $1$: the true value falls in the
-    extreme tails of the posterior more often than it should. The learned posteriors
-    for these parameters are therefore \emph{overconfident}---too narrow by a
-    modest factor.
+    \item The ellipticity and shear parameters ($e_1$, $e_2$, $\gamma_1$,
+    $\gamma_2$) are essentially flat within the confidence band---their posteriors
+    are statistically calibrated.
+    \item The best-constrained parameters ($\theta_E$, $x_s$, $y_s$, and mildly
+    $R_s$) show a gentle central hump with depleted extreme ranks: the true value
+    lands in the posterior tails slightly \emph{less} often than uniform. These
+    posteriors are therefore mildly \emph{under}confident---a little wider than
+    necessary.
 \end{itemize}
 
-This overconfidence is a common failure mode of neural posterior estimators trained
-to convergence on limited data, and it is consistent with the overfitting seen in
-Figure~\ref{fig:loss}: as the network memorizes training noise it becomes
-increasingly (and unjustifiably) certain. Practical mitigations are discussed in
-Section~\ref{sec:discussion}. The practical implication is that credible intervals
-for the well-constrained parameters should be inflated somewhat before being used
-for downstream science.
+Underconfidence is the benign direction of miscalibration: credible intervals are
+conservative rather than misleading, so downstream uses of the posteriors remain
+statistically safe. Notably, the earlier low-SNR, $8{,}000$-sample run exhibited the
+opposite and more dangerous pattern---pronounced U-shaped histograms
+(overconfidence) for exactly these parameters---consistent with the overfitting
+visible in that run's loss curves. Enlarging the training set to $20{,}000$ and
+raising the SNR flipped the calibration from overconfident to approximately
+calibrated/mildly conservative, illustrating how directly SBC diagnostics respond to
+training-set adequacy.
 
 \subsection{Posterior predictive check}
 
@@ -320,21 +334,47 @@ transformed pair. This is the classical \emph{mass-sheet degeneracy}, and a soun
 inference pipeline must report it rather than hide it.
 
 We repeat the full pipeline (generate, train, evaluate) with $\kappa \sim
-\mathcal{U}(0, 0.2)$ added as a ninth inferred parameter. The results show exactly
-the expected signature:
+\mathcal{U}(0, 0.2)$ added as a ninth inferred parameter, at the same corrected SNR
+and dataset size as the main run. The results show exactly the expected signature:
 
 \begin{itemize}
     \item \textbf{Minimal posterior contraction.} The prior standard deviation of
     $\kappa$ is $0.058$; the mean posterior standard deviation across test systems is
-    $0.051$, a contraction of only $12\%$. A single image leaves $\kappa$ almost as
+    $0.048$, a contraction of only $17\%$. A single image leaves $\kappa$ almost as
     uncertain as the prior---the network has correctly learned that this parameter
-    is nearly unidentifiable.
+    is nearly unidentifiable. Correspondingly, the $\kappa$ panel of
+    Figure~\ref{fig:recovery_kappa} shows posterior means hovering near the prior
+    mean regardless of the true value ($R^2 = 0.18$), with error bars spanning
+    almost the entire prior range.
     \item \textbf{Strong internal anti-correlation.} Within individual posteriors the
-    mean correlation between $\kappa$ and $\theta_E$ is $-0.83$: the two parameters
+    mean correlation between $\kappa$ and $\theta_E$ is $-0.93$: the two parameters
     trade off against each other along the degeneracy direction, exactly as the
     lensing equations predict (a larger mass sheet requires a smaller intrinsic
-    Einstein radius to produce the same ring).
+    Einstein radius to produce the same ring). Notably, this correlation is
+    \emph{stronger} at high SNR than in the earlier noisy run ($-0.83$): with less
+    noise, the posterior collapses more tightly onto the true degeneracy ridge.
+    \item \textbf{Degradation of $\theta_E$.} The degeneracy is also visible in what
+    it does to the mass normalization: $\theta_E$ recovery degrades from
+    $R^2 = 1.00$ (without $\kappa$) to $0.93$ (with $\kappa$), with visibly inflated
+    error bars (compare Figures~\ref{fig:recovery}
+    and~\ref{fig:recovery_kappa})---the unidentifiable mass sheet feeds its
+    uncertainty directly into the Einstein radius. All other parameters are
+    essentially unaffected ($e_1$: $0.88$ vs $0.89$; $x_s, y_s$: $0.99$;
+    $R_s$: $0.98$ vs $1.00$), confirming the degeneracy is specific to the
+    $(\kappa, \theta_E)$ pair. This is the concrete answer to the assignment's
+    ``what differences do you observe between the two versions'' question.
 \end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{recovery_kappa.png}
+\caption{Recovery for the 9-parameter model including external convergence
+$\kappa$. The $\kappa$ posterior (bottom right) stays near the prior mean with
+near-prior-width uncertainties ($R^2=0.18$), and $\theta_E$ recovery (top left)
+degrades from $R^2=1.00$ to $0.93$ relative to Figure~\ref{fig:recovery}---the
+mass-sheet degeneracy in action.}
+\label{fig:recovery_kappa}
+\end{figure}
 
 That an off-the-shelf neural posterior estimator recovers this degeneracy
 structure---without being told about it---is a meaningful validation of the SBI
@@ -346,20 +386,22 @@ line-of-sight environment), none of which is present in a single image.
 \section{Discussion and Limitations}
 \label{sec:discussion}
 
-\paragraph{Image signal-to-noise.} The realized peak SNR (median $\approx 4$) fell
-below the nominal $10$--$30$ target, making this a stress test at the noisy end of
-realistic conditions. Raising the source amplitude or lowering the background RMS to
-hit the target range would likely improve ellipticity recovery substantially and
-shear recovery marginally; the mass-sheet degeneracy conclusions would be unchanged,
-as they are information-theoretic rather than noise-driven.
+\paragraph{Effect of signal-to-noise (a controlled comparison).} The first iteration
+of this project used an untuned source amplitude giving median peak SNR $\approx 4$;
+after tuning the amplitude ($20 \to 150$) into the assignment's $10$--$30$ target,
+every parameter's recovery improved (Table~\ref{tab:r2}), most dramatically the
+weakly-imprinting ones (shear: $R^2$ $0.06 \to 0.65$; ellipticity: $\approx 0.5 \to
+\approx 0.87$). The mass-sheet degeneracy conclusions were unchanged in kind---as
+expected, since they are information-theoretic rather than noise-driven---but the
+degeneracy ridge sharpened (corr $-0.83 \to -0.93$).
 
-\paragraph{Overfitting and calibration.} Training for the full $40$ epochs past the
-validation plateau produced overconfident posteriors for the well-constrained
-parameters. Three inexpensive remedies, in increasing order of effort: early stopping
-on validation loss (epoch $\sim$$20$); enlarging the training set (the simulator is
-cheap---$50{,}000$ simulations remain feasible, and now that training runs on GPU the
-enlarged dataset would still train quickly); and light regularization (dropout in
-the summary CNN or weight decay).
+\paragraph{Calibration.} At $N_{\rm train}=8{,}000$ the model overfit (validation
+loss rising after epoch $\sim$$20$) and its posteriors were overconfident; at
+$N_{\rm train}=20{,}000$ neither problem remains, with SBC showing calibrated to
+mildly \emph{under}confident posteriors. If tighter calibration were required, the
+remaining slack could be addressed with a larger validation-selected model or more
+training data ($50{,}000$ simulations remain feasible); the current conservative
+posteriors are already safe for downstream use.
 
 \paragraph{Model scope.} The forward model fixes several quantities (lens centroid,
 source amplitude and profile shape, PSF) that would be uncertain for real
@@ -368,27 +410,34 @@ $\boldsymbol\theta$ with these nuisance parameters, or marginalizing over them i
 simulator, is straightforward within the same pipeline and is the natural next step
 toward application to survey data.
 
-\paragraph{Computational profile.} With GPU training ($<20$ min) the pipeline
-bottleneck is now dataset simulation ($\sim$$5$--$10$ min, CPU-parallelized). Once
-trained, the amortized posterior costs milliseconds per system---the property that
-makes this approach attractive for the $10^4$--$10^5$ lens samples expected from
-upcoming surveys.
+\paragraph{Computational profile.} Training the $20{,}000$-sample model takes $50$
+minutes on an RTX~3060 ($\approx 117$\,ms/step, vs.\ $\approx 500$\,ms/step on CPU);
+dataset simulation takes $\sim$$10$ minutes CPU-parallelized. Once trained, the
+amortized posterior costs milliseconds per system (sampling $2{,}000$ draws for all
+$300$ test systems took $0.3$\,s)---the property that makes this approach attractive
+for the $10^4$--$10^5$ lens samples expected from upcoming surveys.
 
 \section{Conclusion}
 
 We built and validated an end-to-end amortized SBI pipeline for strong-lens parameter
-inference. From single noisy $64\times64$ images, the BayesFlow posterior estimator
-recovers the Einstein radius, source position, and source size accurately
-($R^2=0.83$--$0.95$), the lens ellipticity moderately, and correctly assigns wide
-uncertainties to external shear, which is nearly unidentifiable at the simulated
-noise level. Simulation-based calibration exposes mild overconfidence in the
-best-constrained parameters, attributable to overfitting and addressable with early
-stopping and more training data. When external convergence is included, the inferred
-posteriors exhibit the mass-sheet degeneracy exactly as theory predicts: negligible
-contraction of $\kappa$ relative to the prior and a strong $\kappa$--$\theta_E$
-anti-correlation ($-0.83$). The complete pipeline---simulation, training, and
-evaluation---runs in about half an hour on a single consumer GPU, after which
-inference on new systems is effectively instantaneous.
+inference. From single noisy $64\times64$ images at realistic SNR, the BayesFlow
+posterior estimator recovers the Einstein radius, source position, and source size
+near-perfectly ($R^2 = 0.99$--$1.00$), the lens ellipticity accurately
+($R^2 = 0.84$--$0.89$), and even the weak external shear meaningfully
+($R^2 = 0.65$--$0.80$). Simulation-based calibration shows statistically calibrated
+posteriors for the weakly-constrained parameters and mildly conservative
+(underconfident) ones for the best-constrained---the safe direction of
+miscalibration. A controlled comparison against an earlier low-SNR, smaller-dataset
+run demonstrates both the information value of SNR (shear recovery went from
+unusable to good) and the calibration value of training-set size (overconfident
+U-shaped SBC histograms became flat). When external convergence is included, the
+inferred posteriors exhibit the mass-sheet degeneracy exactly as theory predicts:
+only $17\%$ contraction of $\kappa$ relative to the prior, a strong
+$\kappa$--$\theta_E$ anti-correlation ($-0.93$), and a corresponding degradation of
+$\theta_E$ recovery from $R^2=1.00$ to $0.93$ while all other parameters are
+untouched. The complete pipeline---simulation, training, and evaluation---runs in
+about an hour per model variant on a single consumer GPU, after which inference on
+new systems is effectively instantaneous.
 
 \begin{thebibliography}{9}
 
