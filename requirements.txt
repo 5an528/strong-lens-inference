@@ -1,14 +1,26 @@
 # UPDATED while building out the full pipeline (was: a generic list that
 # included both torch/torchvision AND left the sbi backend unspecified).
 # WHY: BayesFlow 2.x needs exactly one Keras 3 backend. We standardize on
-# "torch" because it is the most reliably CPU-only-friendly option on
-# Windows and needs no separate CUDA setup -- important since the target
-# machine only has 4GB VRAM (not enough headroom to safely train on GPU
-# anyway; everything here is designed to run on CPU/RAM only).
+# "torch" -- it needs no separate CUDA toolkit install (the pip wheel below
+# bundles its own CUDA runtime) and the Keras 3 torch backend automatically
+# runs on the GPU whenever `torch.cuda.is_available()` is True, with no code
+# changes needed elsewhere in the project.
 
 # Extra (not replacement) package index so `pip install -r requirements.txt`
-# can find the CPU-only torch wheels below alongside everything else on PyPI.
---extra-index-url https://download.pytorch.org/whl/cpu
+# can find the CUDA-enabled torch wheels below alongside everything else on
+# PyPI. cu130 (CUDA 13.0) wheels are used to match this project's current
+# torch/torchvision versions (see the pinned "+cu130" local version below --
+# NOTE: plain "torch"/"torchvision" with no version pin is NOT enough to get
+# the GPU build here. pip resolves package versions across ALL indexes
+# together and picks the highest version number it finds; if the CUDA index
+# only has older releases than plain PyPI (which only ships CPU wheels), pip
+# silently installs the newer CPU-only one instead of erroring. Pinning the
+# exact "+cu130" local version forces pip to fetch from the CUDA index,
+# specifically. If you don't have an NVIDIA GPU, or want a smaller CPU-only
+# install, replace the line below with the CPU index and drop "+cu130" from
+# the torch/torchvision lines:
+#   --extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cu130
 
 # Core scientific computing
 numpy
@@ -24,9 +36,13 @@ lenstronomy
 bayesflow>=2.0
 keras>=3
 
-# Keras 3 backend -- CPU-only build is fine, no CUDA/GPU required.
-torch
-torchvision
+# Keras 3 backend -- CUDA build (GPU-accelerated if available, falls back to
+# CPU automatically if no NVIDIA GPU/driver is found). Version pin must stay
+# in sync with what's available on the cu130 index above -- run
+# `pip index versions torch --index-url https://download.pytorch.org/whl/cu130`
+# to see current options if this install ever fails to resolve.
+torch==2.13.0+cu130
+torchvision==0.28.0+cu130
 
 # Utilities
 tqdm

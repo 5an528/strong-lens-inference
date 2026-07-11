@@ -55,13 +55,14 @@ def cmd_evaluate(args):
     import keras
     from src.models.bayesflow_model import LensSummaryNet  # noqa: F401 (registers custom layer for loading)
     import bayesflow as bf
-    from src.models.train import build_workflow
+    from src.models.train import build_workflow, print_device_info
     from src.evaluation.test import run_all
 
     if not os.path.exists(C.MODEL_FILE):
         raise FileNotFoundError(
             f"{C.MODEL_FILE} not found. Run `python main.py train` first."
         )
+    print_device_info()
     print(f"Loading trained approximator from {C.MODEL_FILE} ...")
     workflow = build_workflow()
     workflow.approximator = keras.saving.load_model(C.MODEL_FILE)

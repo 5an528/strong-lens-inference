@@ -176,11 +176,12 @@ LEARNING_RATE = 1e-3
 # training loss is still trending down when it stops (see the loss curve
 # plotted at the end of training).
 
-# Which Keras 3 backend to use. "torch" is the most reliably CPU-friendly
-# option on Windows and is already in requirements.txt. If you install `jax`
-# (CPU build) yourself it is typically a bit faster; nothing else in the
-# project needs to change, just set the environment variable before any
-# keras/bayesflow import happens (src/models/train.py does this for you).
+# Which Keras 3 backend to use. "torch" is already in requirements.txt and
+# needs no extra setup: the Keras 3 torch backend automatically runs on the
+# GPU whenever `torch.cuda.is_available()` is True (see requirements.txt for
+# the CUDA-enabled wheel), and transparently falls back to CPU otherwise --
+# nothing else in the project needs to change either way. src/models/train.py
+# prints which device it picked at the start of training so you can confirm.
 KERAS_BACKEND = "torch"
 
 SEED = 42
