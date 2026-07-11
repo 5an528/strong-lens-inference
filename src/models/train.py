@@ -90,10 +90,26 @@ def build_workflow():
     )
 
 
+def print_device_info():
+    """Report which device training will actually run on. The Keras 3 torch
+    backend picks this automatically (GPU if `torch.cuda.is_available()`,
+    else CPU) -- there is nothing else to configure, but it is easy to think
+    a run is using the GPU when it silently isn't (e.g. CPU-only torch wheel
+    installed), so print it explicitly every run."""
+    print(f"Keras backend: {keras.backend.backend()}")
+    if keras.backend.backend() == "torch":
+        import torch
+        if torch.cuda.is_available():
+            print(f"Torch device: cuda ({torch.cuda.get_device_name(0)})")
+        else:
+            print("Torch device: cpu (no CUDA GPU detected -- see "
+                  "requirements.txt if you expected GPU acceleration)")
+
+
 def main():
     keras.utils.set_random_seed(C.SEED)
 
-    print(f"Keras backend: {keras.backend.backend()}")
+    print_device_info()
     print("Loading offline data ...")
     train_data, val_data = load_offline_data()
     print(f"  train images: {train_data['image'].shape}, "

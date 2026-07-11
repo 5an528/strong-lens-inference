@@ -17,7 +17,7 @@ observed image) -- it only reads arrays and produces figures under figures/.
 """
 import os
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # pyright: ignore[reportMissingModuleSource]
 
 from src import config as C
 
