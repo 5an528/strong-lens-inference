@@ -135,6 +135,14 @@ def main():
     workflow.approximator.save(C.MODEL_FILE)
     print(f"Saved trained approximator -> {C.MODEL_FILE}")
 
+    # Persist the loss curves. Previously only the notebook did this, so a
+    # CLI run's losses existed nowhere but the terminal scrollback (see
+    # RESULTS.md, Run 3). The "_kappa" suffix keeps the two model variants'
+    # plots from overwriting each other.
+    from src.evaluation import plots
+    suffix = "_kappa" if C.INCLUDE_KAPPA else ""
+    plots.plot_training_history(history, fname=f"training_loss{suffix}.png")
+
     # Returning both lets a notebook keep the trained workflow in memory and
     # go straight to evaluation (see notebooks/run_pipeline.ipynb) without a
     # separate save/load round trip, which is the most reliable way to run
