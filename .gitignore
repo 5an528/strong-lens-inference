@@ -1,4 +1,11 @@
 venv/
+.venv/
 .idea/
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
+
+# ADDED: generated dataset/model files -- large, and fully reproducible by
+# running `python main.py generate` / `python main.py train` (see README).
+data/processed/
+data/models/

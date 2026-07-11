@@ -1,18 +1,32 @@
+# UPDATED while building out the full pipeline (was: a generic list that
+# included both torch/torchvision AND left the sbi backend unspecified).
+# WHY: BayesFlow 2.x needs exactly one Keras 3 backend. We standardize on
+# "torch" because it is the most reliably CPU-only-friendly option on
+# Windows and needs no separate CUDA setup -- important since the target
+# machine only has 4GB VRAM (not enough headroom to safely train on GPU
+# anyway; everything here is designed to run on CPU/RAM only).
+
+# Extra (not replacement) package index so `pip install -r requirements.txt`
+# can find the CPU-only torch wheels below alongside everything else on PyPI.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core scientific computing
 numpy
 scipy
 pandas
 matplotlib
 
-# Astronomy
+# Astronomy / lens simulator
 astropy
 lenstronomy
 
-# Machine Learning
+# Simulation-based inference
+bayesflow>=2.0
+keras>=3
+
+# Keras 3 backend -- CPU-only build is fine, no CUDA/GPU required.
 torch
 torchvision
-bayesflow
-scikit-learn
 
 # Utilities
 tqdm
