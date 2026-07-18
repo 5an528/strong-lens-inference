@@ -104,6 +104,37 @@ def kappa_analysis(theta_true, samples):
           f"degeneracy trading kappa off against the mass normalization)")
 
 
+def fiducial_inference(workflow, num_samples=2000, num_prior=1000):
+    """Simulate ONE 'observed' lens from the fixed fiducial parameters in
+    config.FIDUCIAL_THETA, draw posterior samples for it, and save the
+    posterior-vs-prior corner plot with the truth marked (the reference
+    workflow's single-observation inference figure). Returns the posterior
+    samples so callers can print summary statistics.
+    """
+    from src.simulator.lens_generator import simulate_clean
+    from src.simulator.noise import add_noise
+    from src.simulator.parameters import sample_prior_array
+
+    suffix = "_kappa" if C.INCLUDE_KAPPA else ""
+    theta_fid = np.array([C.FIDUCIAL_THETA[n] for n in C.PARAM_NAMES],
+                          dtype=np.float32)
+    rng = np.random.default_rng(C.SEED + 7_000_000)
+    clean = simulate_clean({n: float(v) for n, v in zip(C.PARAM_NAMES, theta_fid)})
+    obs = add_noise(clean, rng=rng).astype(np.float32)[None, :, :, None]
+
+    print("Fiducial-system inference (posterior vs prior corner plot) ...")
+    post = sample_posteriors(workflow, obs, num_samples=num_samples)[0]  # (S, P)
+    prior = sample_prior_array(num_prior, rng=rng).astype(np.float32)
+
+    plots.plot_inference_pairs(post, prior, theta_fid,
+                                fname=f"inference_pairs{suffix}.png")
+    print("  fiducial truth vs posterior mean +- std:")
+    for i, name in enumerate(C.PARAM_NAMES):
+        print(f"    {name:>8}: truth={theta_fid[i]:+.3f}   "
+              f"post={post[:, i].mean():+.3f} +- {post[:, i].std():.3f}")
+    return post
+
+
 def run_all(workflow, num_samples=2000):
     """Run every evaluation diagnostic against the held-out test set and
     save all figures under figures/. This is the single call you need after
@@ -116,11 +147,31 @@ def run_all(workflow, num_samples=2000):
     theta_true = d["theta_test"].astype(np.float32)
     images = d["images_test"].astype(np.float32)
 
+    suffix = "_kappa" if C.INCLUDE_KAPPA else ""
+
     print("Sampling posteriors for the held-out test set ...")
     samples = sample_posteriors(workflow, images, num_samples=num_samples)
 
     print("Diagnostics:")
-    plots.plot_recovery(theta_true, samples)
-    plots.plot_calibration(theta_true, samples)
-    plots.plot_posterior_predictive(images[0], samples[0])
+    plots.plot_recovery(theta_true, samples, fname=f"recovery{suffix}.png")
+    plots.plot_recovery_r2(theta_true, samples, fname=f"recovery_r2{suffix}.png")
+    plots.plot_calibration_ecdf(theta_true, samples,
+                                 fname=f"calibration_ecdf{suffix}.png")
+    plots.plot_calibration(theta_true, samples, fname=f"calibration{suffix}.png")
+    plots.plot_contraction(theta_true, samples, fname=f"contraction{suffix}.png")
+    plots.plot_posterior_predictive(images[0], samples[0],
+                                     fname=f"posterior_predictive{suffix}.png")
     kappa_analysis(theta_true, samples)
+
+    # Dataset-documentation figures (prior pairplot + example images), built
+    # from the training file so the report can show what the network saw.
+    train_path = os.path.join(C.DATA_DIR, C.DATA_FILE)
+    if os.path.exists(train_path):
+        dt = np.load(train_path, allow_pickle=True)
+        plots.plot_prior_pairs(dt["theta_train"],
+                                fname=f"prior_pairs{suffix}.png")
+        plots.plot_dataset_preview(dt["images_train"][:8], dt["theta_train"][:8],
+                                    num_to_display=8,
+                                    fname=f"dataset_preview{suffix}.png")
+
+    fiducial_inference(workflow, num_samples=num_samples)

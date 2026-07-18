@@ -56,7 +56,10 @@ BACKGROUND_RMS = 0.10   # Gaussian sky/read noise standard deviation per pixel.
 # ----------------------------------------------------------------------------
 LENS_CENTER_X = 0.0   # lens galaxy centroid, assumed known from the lens light.
 LENS_CENTER_Y = 0.0
-SOURCE_AMP = 20.0     # source surface-brightness amplitude -- sets the SNR.
+# TUNED (was 20.0, which gave median peak SNR ~4 -- well below the
+# assignment's 10-30 target). 150.0 puts the median at ~16 (range ~6-21);
+# see the amplitude-vs-SNR sweep in RESULTS.md.
+SOURCE_AMP = 150.0    # source surface-brightness amplitude -- sets the SNR.
 SOURCE_N = 2.0        # source Sersic index (shape of the light profile), fixed.
 SOURCE_E1 = 0.05      # source-light ellipticity, fixed (only the LENS mass
 SOURCE_E2 = -0.05     # ellipticity e1/e2 below is inferred, not this one).
@@ -64,8 +67,8 @@ SOURCE_E2 = -0.05     # ellipticity e1/e2 below is inferred, not this one).
 # Rough scale used only to bring pixel values near O(1) before they enter the
 # CNN. BatchNorm inside the network absorbs any remaining mis-scaling, so the
 # exact number is not critical -- it just avoids feeding the network values
-# in the thousands.
-IMAGE_SCALE = 0.5
+# in the thousands. Scaled up with SOURCE_AMP (peak pixel is now ~3).
+IMAGE_SCALE = 4.0
 
 # ----------------------------------------------------------------------------
 # 4. WHAT WE INFER -> theta.
@@ -131,6 +134,21 @@ PRIOR = {
 # task got easier -- worth remembering when judging your own results.
 
 # ----------------------------------------------------------------------------
+# 5b. FIDUCIAL SYSTEM -- one fixed "observed" lens used only for the final
+#     inference figure (posterior vs. prior corner plot with truth markers),
+#     mirroring the reference workflow's single-observation inference demo.
+#     Values sit comfortably inside every prior range above and correspond to
+#     a mildly elliptical lens (q ~ 0.85) with weak external shear and a
+#     slightly off-center compact source.
+# ----------------------------------------------------------------------------
+FIDUCIAL_THETA = {
+    "theta_E": 1.15, "e1": 0.06, "e2": -0.04,
+    "gamma1": 0.02, "gamma2": 0.03,
+    "x_s": 0.10, "y_s": -0.07, "R_s": 0.15,
+    "kappa": 0.05,   # used only when INCLUDE_KAPPA is on.
+}
+
+# ----------------------------------------------------------------------------
 # 6. DATASET SIZES.
 #    These defaults are deliberately small: lenstronomy simulation is
 #    CPU-bound (no GPU needed, but it is the slow step), and this project is
@@ -138,8 +156,13 @@ PRIOR = {
 #    assignment's suggested budget is 1e4-1e5 simulations; if you have access
 #    to a faster machine (or just want to let it run overnight) raise these.
 # ----------------------------------------------------------------------------
-N_TRAIN = 8000     # start here on a laptop; try 20000-50000 if you have time.
-N_VAL = 1000
+# RAISED 8000 -> 20000 -> 50000 (the upper half of the assignment's 1e4-1e5
+# budget). 20000 removed the overfitting seen in the 8000-sample runs; 50000
+# further improved shear/ellipticity recovery. The mild SBC underconfidence
+# of the best-constrained parameters persists at both 20k and 50k, i.e. it
+# is a network-capacity effect, not a data-volume one (see RESULTS.md).
+N_TRAIN = 50000
+N_VAL = 2000
 N_TEST = 300       # held-out set used only for the recovery/calibration plots.
 
 # How many CPU processes to use while precomputing the dataset (the lens
@@ -176,11 +199,12 @@ LEARNING_RATE = 1e-3
 # training loss is still trending down when it stops (see the loss curve
 # plotted at the end of training).
 
-# Which Keras 3 backend to use. "torch" is the most reliably CPU-friendly
-# option on Windows and is already in requirements.txt. If you install `jax`
-# (CPU build) yourself it is typically a bit faster; nothing else in the
-# project needs to change, just set the environment variable before any
-# keras/bayesflow import happens (src/models/train.py does this for you).
+# Which Keras 3 backend to use. "torch" is already in requirements.txt and
+# needs no extra setup: the Keras 3 torch backend automatically runs on the
+# GPU whenever `torch.cuda.is_available()` is True (see requirements.txt for
+# the CUDA-enabled wheel), and transparently falls back to CPU otherwise --
+# nothing else in the project needs to change either way. src/models/train.py
+# prints which device it picked at the start of training so you can confirm.
 KERAS_BACKEND = "torch"
 
 SEED = 42
