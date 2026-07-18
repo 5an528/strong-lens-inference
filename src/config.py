@@ -134,6 +134,21 @@ PRIOR = {
 # task got easier -- worth remembering when judging your own results.
 
 # ----------------------------------------------------------------------------
+# 5b. FIDUCIAL SYSTEM -- one fixed "observed" lens used only for the final
+#     inference figure (posterior vs. prior corner plot with truth markers),
+#     mirroring the reference workflow's single-observation inference demo.
+#     Values sit comfortably inside every prior range above and correspond to
+#     a mildly elliptical lens (q ~ 0.85) with weak external shear and a
+#     slightly off-center compact source.
+# ----------------------------------------------------------------------------
+FIDUCIAL_THETA = {
+    "theta_E": 1.15, "e1": 0.06, "e2": -0.04,
+    "gamma1": 0.02, "gamma2": 0.03,
+    "x_s": 0.10, "y_s": -0.07, "R_s": 0.15,
+    "kappa": 0.05,   # used only when INCLUDE_KAPPA is on.
+}
+
+# ----------------------------------------------------------------------------
 # 6. DATASET SIZES.
 #    These defaults are deliberately small: lenstronomy simulation is
 #    CPU-bound (no GPU needed, but it is the slow step), and this project is
@@ -141,11 +156,12 @@ PRIOR = {
 #    assignment's suggested budget is 1e4-1e5 simulations; if you have access
 #    to a faster machine (or just want to let it run overnight) raise these.
 # ----------------------------------------------------------------------------
-# RAISED from 8000/1000 (the bare minimum of the assignment's 1e4-1e5
-# budget) now that training runs on GPU -- the extra cost is only ~10-20
-# min of CPU simulation, and more data reduces the overfitting seen in the
-# 8000-sample runs (see RESULTS.md).
-N_TRAIN = 20000
+# RAISED 8000 -> 20000 -> 50000 (the upper half of the assignment's 1e4-1e5
+# budget). 20000 removed the overfitting seen in the 8000-sample runs; 50000
+# further improved shear/ellipticity recovery. The mild SBC underconfidence
+# of the best-constrained parameters persists at both 20k and 50k, i.e. it
+# is a network-capacity effect, not a data-volume one (see RESULTS.md).
+N_TRAIN = 50000
 N_VAL = 2000
 N_TEST = 300       # held-out set used only for the recovery/calibration plots.
 
