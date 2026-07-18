@@ -1,5 +1,11 @@
 # Strong Lens Inference — The Complete Project Explanation
 
+> **Prefer a PDF with the plots and code embedded?** See
+> [`report/explanation.pdf`](report/explanation.pdf) — a 17-page beginner's guide
+> ("explained from zero") with every figure, the key source-code excerpts
+> explained line by line, and a glossary. This file is its short markdown
+> companion.
+
 A plain-language walkthrough of the entire project: what problem it solves, how every
 piece of the pipeline works, and — figure by figure — how to read each plot and what
 ours actually shows. Numbers refer to the final **50,000-sample runs** (RESULTS.md,
