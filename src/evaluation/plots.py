@@ -17,70 +17,125 @@ observed image) -- it only reads arrays and produces figures under figures/.
 """
 import os
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # pyright: ignore[reportMissingModuleSource]
 
 from src import config as C
 
 FIGURES_DIR = "figures"
 
 
-def plot_dataset_preview(images, theta, num_to_display=4, fname="dataset_preview.png"):
+def _labels():
+    """Math-notation labels in PARAM_NAMES order, for BayesFlow's plots."""
+    return [C.PARAM_LABELS[n] for n in C.PARAM_NAMES]
+
+
+def _save(fig, fname, note=""):
+    # BayesFlow's pair plots return a seaborn PairGrid rather than a bare
+    # Figure -- unwrap to the underlying Figure so savefig/close work on both.
+    if not isinstance(fig, plt.Figure):
+        fig = getattr(fig, "figure", getattr(fig, "fig", fig))
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    out = os.path.join(FIGURES_DIR, fname)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}" + (f"  ({note})" if note else ""))
+
+
+def plot_dataset_preview(images, theta, num_to_display=8, fname="dataset_preview.png"):
     """Show a grid of simulated lens images with their true theta_E in the
-    title. Sanity-check plot: run this right after `generate` to make sure
-    the images look like plausible lenses (rings/arcs, not noise or blanks)
-    before spending time training.
+    title (the analog of the reference report's "samples from the
+    likelihood" figure). Sanity-check plot: run this right after `generate`
+    to make sure the images look like plausible lenses (rings/arcs, not
+    noise or blanks) before spending time training.
     """
     os.makedirs(FIGURES_DIR, exist_ok=True)
     n = min(num_to_display, len(images))
-    fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
-    if n == 1:
-        axes = [axes]
+    ncol = min(4, n)
+    nrow = int(np.ceil(n / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.2 * ncol, 3.4 * nrow))
+    axes = np.array(axes).ravel()
 
     tp = C.PARAM_NAMES.index("theta_E")
     for i in range(n):
         img = images[i, :, :, 0] if images.ndim == 4 else images[i]
         im = axes[i].imshow(img, origin="lower", cmap="magma")
-        axes[i].set_title(f"Lens #{i + 1}\n" + r"$\theta_E$=" + f"{theta[i, tp]:.2f}\"")
+        axes[i].set_title(r"$\theta_E$=" + f"{theta[i, tp]:.2f}\"", fontsize=11)
         axes[i].axis("off")
+    for k in range(n, len(axes)):
+        axes[k].axis("off")
 
     fig.subplots_adjust(right=0.85)
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.7])
     fig.colorbar(im, cax=cbar_ax, label="pixel intensity")
 
     out = os.path.join(FIGURES_DIR, fname)
-    plt.savefig(out, bbox_inches="tight", dpi=130)
+    plt.savefig(out, bbox_inches="tight", dpi=150)
     plt.close(fig)
     print(f"saved {out}")
 
 
 def plot_training_history(history, fname="training_loss.png"):
     """Plot the training/validation loss curves returned by
-    workflow.fit_offline(). A validation loss that is still decreasing when
-    training stops means more config.EPOCHS would likely still help; a
-    validation loss that has flattened (or starts rising while train loss
-    keeps falling) means the network is starting to overfit the training
-    set -- more data (config.N_TRAIN) helps more than more epochs there.
+    workflow.fit_offline(), in the "Loss Trajectory" style of BayesFlow's
+    own loss plot: thin raw curves plus a thicker moving average. A
+    validation loss that is still decreasing when training stops means more
+    config.EPOCHS would likely still help; a validation loss that has
+    flattened (or starts rising while train loss keeps falling) means the
+    network is starting to overfit the training set -- more data
+    (config.N_TRAIN) helps more than more epochs there.
     """
     os.makedirs(FIGURES_DIR, exist_ok=True)
     hist = history.history if hasattr(history, "history") else history
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    def _ma(x, w=5):
+        x = np.asarray(x, dtype=float)
+        if len(x) < w:
+            return x
+        return np.convolve(x, np.ones(w) / w, mode="valid")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    epochs = np.arange(1, len(hist["loss"]) + 1)
     if "loss" in hist:
-        ax.plot(hist["loss"], label="train loss")
+        ax.plot(epochs, hist["loss"], color="#132a70", alpha=0.35, lw=1,
+                label="Training")
+        ma = _ma(hist["loss"])
+        ax.plot(epochs[len(epochs) - len(ma):], ma, color="#132a70", lw=2,
+                label="Training (Moving Average)")
     if "val_loss" in hist:
-        ax.plot(hist["val_loss"], label="val loss")
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("loss (negative log-posterior density)")
-    ax.legend()
+        ax.plot(epochs, hist["val_loss"], ".--", color="grey", alpha=0.6,
+                lw=1, ms=4, label="Validation")
+        ma = _ma(hist["val_loss"])
+        ax.plot(epochs[len(epochs) - len(ma):], ma, "--", color="black", lw=1.8,
+                label="Validation (Moving Average)")
+    ax.set_title("Loss Trajectory")
+    ax.set_xlabel("Training epoch #")
+    ax.set_ylabel("Loss (negative log-posterior density)")
+    ax.grid(alpha=0.2)
+    ax.legend(fontsize=9)
     fig.tight_layout()
 
     out = os.path.join(FIGURES_DIR, fname)
-    fig.savefig(out, dpi=130)
+    fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"saved {out}")
 
 
 def plot_recovery(theta_true, samples, fname="recovery.png"):
+    """Reference-style parameter recovery via BayesFlow's own diagnostic:
+    posterior MEDIAN vs. ground truth with the median absolute deviation
+    (MAD) as the uncertainty bar and the Pearson correlation r annotated in
+    each panel -- exactly the recovery figure style of the BayesFlow
+    workflow papers. Points on the dashed diagonal = perfect recovery.
+    """
+    import bayesflow as bf
+
+    fig = bf.diagnostics.plots.recovery(
+        estimates=samples, targets=theta_true, variable_names=_labels(),
+    )
+    _save(fig, fname, "posterior median vs truth, MAD error bars, Pearson r")
+
+
+def plot_recovery_r2(theta_true, samples, fname="recovery_r2.png"):
     """Posterior-mean-vs-true-value scatter, one panel per parameter, with
     the posterior standard deviation as an error bar. Points on the black
     dashed diagonal = perfect recovery. This is the main "did it learn
@@ -123,6 +178,77 @@ def _r2(y, yhat):
     ss_res = np.sum((y - yhat) ** 2)
     ss_tot = np.sum((y - y.mean()) ** 2)
     return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+
+def plot_calibration_ecdf(theta_true, samples, fname="calibration_ecdf.png"):
+    """Simulation-based calibration as a rank-ECDF *difference* plot with
+    simultaneous 95% confidence bands (Saeilynoja et al. 2022), via
+    BayesFlow's own diagnostic -- the same SBC figure style as the reference
+    workflow. The difference between the empirical CDF of the fractional
+    ranks and the uniform CDF should stay inside the grey band; excursions
+    below/above indicate over/underconfident or biased posteriors.
+    """
+    import bayesflow as bf
+
+    fig = bf.diagnostics.plots.calibration_ecdf(
+        estimates=samples, targets=theta_true, variable_names=_labels(),
+        difference=True,
+    )
+    _save(fig, fname, "inside the band = calibrated")
+
+
+def plot_contraction(theta_true, samples, fname="contraction.png"):
+    """Posterior z-score vs. posterior contraction, via BayesFlow's own
+    diagnostic. Contraction = 1 - posterior variance / prior variance
+    (near 1 = strong information gain from the image); the z-score is the
+    standardized offset of the posterior mean from the truth (should spread
+    around 0, mostly within +-2). The ideal regime is the top-right funnel:
+    high contraction, small |z|.
+    """
+    import bayesflow as bf
+
+    fig = bf.diagnostics.plots.z_score_contraction(
+        estimates=samples, targets=theta_true, variable_names=_labels(),
+    )
+    _save(fig, fname, "contraction near 1 + z near 0 = informative, unbiased")
+
+
+def plot_prior_pairs(theta, max_points=1000, fname="prior_pairs.png"):
+    """Marginal + pairwise joint distributions of the prior draws used to
+    build the training set (the analog of the reference report's prior
+    pairplot). Documents p(theta) visually, including the ring-shaped
+    (e1, e2) and (gamma1, gamma2) supports induced by sampling (q, phi) and
+    (gamma_ext, phi_ext) and converting to Cartesian components.
+    """
+    import bayesflow as bf
+
+    fig = bf.diagnostics.plots.pairs_samples(
+        samples=theta[:max_points], variable_names=_labels(), label="Prior",
+    )
+    _save(fig, fname)
+
+
+def plot_inference_pairs(post_samples, prior_samples, targets,
+                          fname="inference_pairs.png"):
+    """The 'inference on one observed system' figure: pairwise posterior
+    (blue) vs. prior (grey) with the true parameter values marked (red),
+    via BayesFlow's pairs_posterior -- the analog of the reference report's
+    posterior-vs-prior corner plot for a single fiducial observation.
+
+    post_samples: (S, P) posterior draws for the one observed image.
+    prior_samples: (M, P) draws from p(theta).
+    targets: (P,) true parameter values used to simulate the observation.
+    """
+    import bayesflow as bf
+
+    fig = bf.diagnostics.plots.pairs_posterior(
+        estimates=post_samples[None, ...],
+        targets=np.asarray(targets)[None, :],
+        priors=prior_samples,
+        dataset_id=0,
+        variable_names=_labels(),
+    )
+    _save(fig, fname, "posterior vs prior for the fiducial system")
 
 
 def plot_calibration(theta_true, samples, fname="calibration.png"):

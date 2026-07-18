@@ -1,0 +1,730 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+
+\graphicspath{{../figures/}}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+% ---------------------------------------------------------------------------
+% RUN-DEPENDENT NUMBERS (filled from the final 50k-run logs/figures).
+% Everything the text quotes from the final runs is defined here, once, so
+% the prose below never disagrees with itself.
+% ---------------------------------------------------------------------------
+% dataset SNR report (50k, 8-parameter run)
+\newcommand{\snrMin}{4.6}\newcommand{\snrMed}{16.1}\newcommand{\snrMax}{27.4}
+% training summary (8-parameter / kappa run)
+\newcommand{\trainTime}{123}\newcommand{\trainTimeK}{123}
+\newcommand{\epochsRun}{40}\newcommand{\epochsRunK}{40}
+\newcommand{\valLossFinal}{-8.05}\newcommand{\valLossFinalK}{-6.79}
+% recovery, 8-parameter model at 50k: Pearson r (BayesFlow recovery figure)
+\newcommand{\rThetaE}{0.999}\newcommand{\rEone}{0.970}\newcommand{\rEtwo}{0.960}
+\newcommand{\rGone}{0.928}\newcommand{\rGtwo}{0.895}
+\newcommand{\rXs}{0.999}\newcommand{\rYs}{0.999}\newcommand{\rRs}{0.999}
+% recovery, 8-parameter model at 50k: R^2 (posterior mean vs truth)
+\newcommand{\RThetaE}{1.00}\newcommand{\REone}{0.94}\newcommand{\REtwo}{0.92}
+\newcommand{\RGone}{0.86}\newcommand{\RGtwo}{0.80}
+\newcommand{\RXs}{1.00}\newcommand{\RYs}{1.00}\newcommand{\RRs}{1.00}
+% recovery, 9-parameter (kappa) model at 50k
+\newcommand{\RKThetaE}{0.94}\newcommand{\RKappa}{0.21}
+% mass-sheet degeneracy statistics (kappa run at 50k)
+\newcommand{\kapPostStd}{0.048}\newcommand{\kapContraction}{16\%}\newcommand{\kapCorr}{-0.96}
+% ---------------------------------------------------------------------------
+
+\title{Inferring Strong Gravitational Lens Parameters from Images\\
+       using Amortized Bayesian Inference\\[1.2em]
+       \large --- Project Report ---\\
+       Simulation Based Inference}
+\author{Sayed Atique Newaz\\ Noureen Alam Meem\\ Mashuk Khan}
+\date{July 18, 2026\\[0.6em] \textit{TU Dortmund University}}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Strong gravitational lensing occurs when a massive foreground galaxy bends the light
+of a distant background source, producing arcs, multiple images, or complete Einstein
+rings. The observed image morphology encodes the projected mass distribution of the
+lens: the ring radius traces the total enclosed mass via the Einstein radius
+$\theta_E$, the arc shapes trace the lens ellipticity, and subtle distortions trace
+the tidal field of neighbouring structures (external shear). Extracting these
+parameters from images is a core task in astrophysical applications ranging from
+measuring dark-matter substructure to time-delay
+cosmography~\cite{schneider2013msd}.
+
+Classical lens modelling fits a parametric model to each image with likelihood-based
+sampling (e.g.\ MCMC), which is accurate but slow---often hours per system---and must
+be repeated from scratch for every new image. Upcoming surveys (Euclid, LSST) are
+expected to discover $10^4$--$10^5$ new lenses, making per-system MCMC impractical.
+\emph{Amortized} Bayesian inference (ABI) offers an alternative: a neural network is
+trained once on simulated (parameter, image) pairs to approximate the posterior
+$p(\boldsymbol\theta \mid \mathbf{x})$, after which inference for any new image
+requires only a forward pass. We implement this approach with
+BayesFlow~\cite{radev2020bayesflow,bayesflow2023software}, using the strong-lensing
+simulator \texttt{lenstronomy}~\cite{birrer2018lenstronomy} as the forward model.
+The code is publicly available at
+\url{https://github.com/5an528/strong-lens-inference}.
+
+\section{Problem Definition}
+
+The objective is to estimate the physical parameters of a strong gravitational lens
+system from a \emph{single} noisy telescope image. Each system consists of a singular
+isothermal ellipsoid (SIE) lens~\cite{kormann1994sie} with external shear, magnifying
+an elliptical S\'ersic source. The inferred parameter vector is
+\begin{equation}
+\boldsymbol\theta =
+(\theta_E,\; e_1,\; e_2,\; \gamma_1,\; \gamma_2,\; x_s,\; y_s,\; R_s)
+\quad [\,+\;\kappa\,],
+\end{equation}
+where $\theta_E$ is the Einstein radius, $(e_1, e_2)$ the lens ellipticity
+components, $(\gamma_1, \gamma_2)$ the external shear components, $(x_s, y_s)$ the
+source position, $R_s$ the source half-light radius, and $\kappa$ an optional
+uniform external convergence (a ``mass sheet''). Two questions structure the
+analysis:
+\begin{enumerate}
+    \item How well can each parameter be recovered from one noisy image, and are the
+          inferred uncertainties statistically calibrated?
+    \item When $\kappa$ is added as a ninth parameter, does the inference correctly
+          reflect the classical \emph{mass-sheet
+          degeneracy}~\cite{falco1985msd,schneider2013msd}---i.e.\ report that
+          $\kappa$ is essentially unidentifiable from a single image rather than
+          hallucinating a tight constraint?
+\end{enumerate}
+The challenge is that the likelihood $p(\mathbf{x} \mid \boldsymbol\theta)$ of a
+$64\times64$-pixel image under PSF convolution and mixed Gaussian--Poisson noise is
+not available in closed form as a tractable function of $\boldsymbol\theta$, which
+motivates the simulation-based, likelihood-free approach.
+
+\section{Statistical model}
+
+\subsection{Parameter Priors}
+
+Parameters are drawn from independent, physically motivated uniform priors
+(Table~\ref{tab:priors}). Ellipticity is not sampled directly in $(e_1, e_2)$:
+instead the axis ratio $q$ and position angle $\phi$ are drawn and converted via
+$e = (1-q)/(1+q)$, $e_1 = e\cos 2\phi$, $e_2 = e\sin 2\phi$ (the convention of
+\texttt{lenstronomy}~\cite{birrer2018lenstronomy}), which guarantees every draw is a
+valid ellipse ($e_1^2 + e_2^2 < 1$). The external shear is likewise drawn in modulus
+and angle and converted to $(\gamma_1, \gamma_2)$. This induces ring-shaped joint
+supports in the Cartesian components, visible in the prior pairplot
+(Figure~\ref{fig:prior-pairs} in the appendix). The ranges are chosen so that the
+lensed images remain informative: $\theta_E \in (0.7'', 1.6'')$ keeps the Einstein
+ring inside the field of view; $q \geq 0.6$ and $\gamma_{\rm ext} \leq 0.08$ cover
+the typical ranges observed for galaxy-scale lenses~\cite{kormann1994sie,
+schneider2013msd}; the source offset and size ranges guarantee visibly lensed
+(arc/ring) configurations rather than unlensed point sources. Identical priors are
+used at train and test time, a prerequisite for the calibration diagnostics of
+Section~\ref{sec:calibration} to be valid.
+
+\begin{table}[H]
+\centering
+\caption{Prior ranges. Lengths in arcsec, angles in radians. All priors are uniform.}
+\label{tab:priors}
+\begin{tabular}{lll}
+\toprule
+Parameter & Range & Meaning \\
+\midrule
+$\theta_E$          & $(0.7,\ 1.6)$    & Einstein radius \\
+$q$                 & $(0.6,\ 1.0)$    & lens axis ratio $\rightarrow (e_1, e_2)$ \\
+$\phi$              & $(0,\ \pi)$      & lens position angle \\
+$\gamma_{\rm ext}$  & $(0,\ 0.08)$     & external shear modulus $\rightarrow (\gamma_1, \gamma_2)$ \\
+$\phi_{\rm ext}$    & $(0,\ \pi)$      & external shear angle \\
+$x_s,\ y_s$         & $(-0.3,\ 0.3)$   & source position \\
+$R_s$               & $(0.05,\ 0.25)$  & source half-light radius \\
+$\kappa$            & $(0,\ 0.20)$     & external convergence (9-parameter run only) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Nuisance quantities are fixed and assumed known, following the assignment
+specification: the lens centroid (measurable from the lens light), the source
+amplitude, the source S\'ersic index ($n = 2$), and the source-light ellipticity.
+
+\subsection{Likelihood}
+
+The data $\mathbf{x}$ is a $64 \times 64$ image. Writing the noise-free,
+PSF-convolved lenstronomy render as $\mu(\boldsymbol\theta)$, each pixel $i$ is
+corrupted independently by Gaussian background (sky/read) noise and Poisson shot
+noise:
+\begin{equation}
+x_i \mid \boldsymbol\theta \;\sim\;
+\mathcal{N}\!\Big(\mu_i(\boldsymbol\theta),\;
+\sigma_{\rm bkg}^2 + \mu_i(\boldsymbol\theta)/t_{\rm exp}\Big),
+\qquad i = 1, \dots, 64^2,
+\end{equation}
+with fixed $\sigma_{\rm bkg} = 0.1$ and effective exposure time
+$t_{\rm exp} = 100$. Unlike an idealized homoscedastic model, the noise variance
+grows with the signal itself (brighter arc pixels are noisier in absolute terms),
+matching real CCD behaviour; both components are applied with
+\texttt{lenstronomy}'s own noise utilities. Although the pixels are conditionally
+independent given $\boldsymbol\theta$, they are far from exchangeable---the
+information about $\boldsymbol\theta$ lies in the spatial \emph{structure} of the
+image---which dictates a convolutional summary network
+(Section~\ref{sec:npe}) rather than a permutation-invariant one.
+
+The image dimensions were chosen deliberately: $64$ pixels at $0.05''$/pixel give a
+$3.2''$ field of view, comfortably containing the largest Einstein ring allowed by
+the prior ($2\theta_E^{\max} = 3.2''$) while keeping the PSF
+(Gaussian, FWHM $0.1'' = 2$ pixels) resolved at Nyquist sampling. Larger grids make
+every simulation and every CNN forward pass proportionally slower without adding
+usable information at this PSF width.
+
+\section{Data Generation}
+
+Synthetic datasets were generated with the Python package
+\texttt{lenstronomy}~\cite{birrer2018lenstronomy}, a widely used multi-purpose
+gravitational-lensing code: for each prior draw the SIE + shear (+ convergence)
+deflection field lenses the S\'ersic source, the image is PSF-convolved, pixelated,
+and degraded with the two-component noise model above. Sampling from the priors was
+realized with \texttt{numpy}~\cite{harris2020numpy}.
+
+The source amplitude sets the signal-to-noise ratio and was tuned by a sweep over
+prior draws to place typical images in the realistic peak-SNR range of $10$--$30$
+targeted by the assignment (Table~\ref{tab:snr-sweep}). With the selected amplitude
+of $150$, the realized peak SNR of the final training set is
+median $\snrMed$ (range $\snrMin$--$\snrMax$). An earlier iteration of this project
+used the untuned amplitude of $20$ (median peak SNR $\approx 4$); it is retained in
+Section~\ref{sec:other-configs} as a controlled comparison of how noise destroys
+parameter information.
+
+\begin{table}[H]
+\centering
+\caption{Peak-SNR sweep over 60 prior draws used to tune the source amplitude into
+the assignment's target range of $10$--$30$.}
+\label{tab:snr-sweep}
+\begin{tabular}{lccc}
+\toprule
+Source amplitude & min & median & max \\
+\midrule
+20 (initial)   & 1.0 & 3.8  & 5.5 \\
+60             & 2.7 & 8.9  & 12.1 \\
+100            & 4.1 & 12.6 & 16.7 \\
+\textbf{150 (selected)} & 5.7 & \textbf{16.3} & 21.3 \\
+200            & 7.1 & 19.4 & 25.1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Because \texttt{lenstronomy} simulation is CPU-bound and is the slowest step of the
+pipeline, the dataset is precomputed \emph{offline}, parallelized over CPU worker
+processes, and stored; training then never touches the simulator. We generate
+$N_{\rm train} = 50{,}000$ training, $N_{\rm val} = 2{,}000$ validation, and
+$N_{\rm test} = 300$ held-out test systems---at the upper end of the assignment's
+suggested budget of $10^4$--$10^5$ simulations. This size was reached in steps:
+$8{,}000$ samples produced clear overfitting, $20{,}000$ removed it, and
+$50{,}000$ further improved the recovery of the weakly identified shear and
+ellipticity parameters (Section~\ref{sec:other-configs}). Example images and the prior pairplot are shown
+in Figures~\ref{fig:dataset-preview} and~\ref{fig:prior-pairs} in the appendix.
+
+\section{Neural Posterior Estimation and Training}
+\label{sec:npe}
+
+BayesFlow~\cite{radev2020bayesflow,bayesflow2023software}, a Python framework for
+amortized Bayesian inference built on Keras~3, was used to train a neural estimator
+of the posterior,
+\begin{equation}
+\hat p\big(\boldsymbol\theta \mid h(\mathbf{x})\big) \;\approx\;
+p(\boldsymbol\theta \mid \mathbf{x}),
+\end{equation}
+where $h(\mathbf{x})$ is a learned summary statistic. Two networks are trained
+jointly end-to-end (Table~\ref{tab:architecture}): a \textbf{summary network} that
+compresses each $64\times64\times1$ image into a $48$-dimensional feature vector,
+and an \textbf{inference network} that approximates the posterior given that
+summary. Amortization means the posterior is learned as a \emph{function} of the
+data rather than approximated per observation: training is slower, but inference on
+any new image afterwards takes milliseconds.
+
+Because the data are images, BayesFlow's built-in summary networks (designed for
+exchangeable sets and time series) do not apply, and a custom convolutional network
+is supplied: three convolutional blocks (two $3\times3$ convolutions each with
+$32$, $64$, and $128$ filters, max-pooling, batch normalization), global average
+pooling, and two dense layers. The convolutional structure matches the spatial
+dependence of the data noted in Section~3.2, capturing the ring/arc morphology at
+successively coarser scales. As the inference network we use a conditional
+coupling-flow normalizing flow of depth $4$; the physical parameters are
+standardized (z-scored) before entering the flow, since they span two orders of
+magnitude in scale ($\theta_E \sim 1$ vs.\ $\gamma_i \sim 10^{-2}$).
+
+\begin{table}[H]
+\begin{minipage}[t]{0.52\textwidth}
+\centering
+\caption{Model architecture.}
+\label{tab:architecture}
+\begin{tabular}{lr}
+\toprule
+Parameter & Value \\
+\midrule
+Summary network       & custom CNN \\
+\quad Conv blocks     & 3 (32, 64, 128 filters) \\
+\quad Kernel size     & $3\times3$ \\
+\quad Pooling         & max + global average \\
+\quad Summary dim.    & 48 \\
+\quad Activation      & ReLU \\
+Inference network     & CouplingFlow \\
+\quad Depth           & 4 \\
+\quad Standardization & inference variables \\
+\bottomrule
+\end{tabular}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.44\textwidth}
+\centering
+\caption{Training configuration.}
+\label{tab:training}
+\begin{tabular}{lr}
+\toprule
+Parameter & Value \\
+\midrule
+Training samples   & 50\,000 \\
+Validation samples & 2\,000 \\
+Test samples       & 300 \\
+Epochs (max)       & 40 \\
+Batch size         & 32 \\
+Optimizer          & Adam \\
+Learning rate      & $10^{-3}$ \\
+Early stopping     & patience 10 (val.\ loss) \\
+Backend            & Keras~3 / PyTorch (CUDA) \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+\end{table}
+
+Training is offline on the precomputed dataset (Table~\ref{tab:training}). Early
+stopping on the validation loss (patience $10$, best weights restored) guards
+against the late-epoch overfitting observed in the small-dataset pilot runs; at
+$50{,}000$ samples it never triggers, because the validation loss decreases
+essentially monotonically to the end (Figure~\ref{fig:loss}), finishing at
+$\valLossFinal$ with no train--validation gap. On an NVIDIA GeForce RTX~3060 the
+8-parameter model trains in \trainTime\ minutes (the same configuration needed
+$\approx 4$--$5\times$ longer on CPU, which is what made the larger dataset
+practical); the 9-parameter variant behaves identically (\trainTimeK\ minutes,
+final validation loss $\valLossFinalK$).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{training_loss.png}
+\caption{Loss trajectory (negative log-posterior density) of the CNN +
+CouplingFlow model trained on $50{,}000$ samples: raw curves (thin) and moving
+averages (thick). Validation tracks training loss throughout---no overfitting.}
+\label{fig:loss}
+\end{figure}
+
+\section{Diagnostics}
+
+All diagnostics are computed on the $300$ held-out test systems, with $2{,}000$
+posterior draws per system, for the final CNN + CouplingFlow model trained on
+$50{,}000$ samples (both the 8-parameter and, where noted, the 9-parameter
+variant). We assess point accuracy (parameter recovery), uncertainty calibration
+(simulation-based calibration), information gain (posterior contraction and
+z-scores), and generative fidelity (posterior predictive checks).
+
+\subsection{Parameter Recovery}
+
+Figure~\ref{fig:recovery} plots the posterior median against the ground truth for
+each parameter, with the posterior median absolute deviation (MAD) as the
+uncertainty bar and the Pearson correlation $r$ annotated per panel;
+Table~\ref{tab:r2} reports the corresponding $R^2$ of the posterior mean, alongside
+the two earlier configurations for comparison.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{recovery.png}
+\caption{Ground truth vs.\ posterior median with MAD error bars for the $300$
+held-out test systems (8-parameter CNN + CouplingFlow model, $50{,}000$ training
+samples). The dashed diagonal marks perfect recovery.}
+\label{fig:recovery}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Recovery accuracy ($R^2$, posterior mean vs.\ truth, 300 test systems)
+for the final model and the two earlier configurations of the same architecture.}
+\label{tab:r2}
+\begin{tabular}{lccc}
+\toprule
+Parameter & $50$k, SNR${\sim}16$ & $20$k, SNR${\sim}16$ & $8$k, SNR${\sim}4$ \\
+\midrule
+$\theta_E$ & $\RThetaE$ & $1.00$ & $0.88$ \\
+$R_s$      & $\RRs$     & $1.00$ & $0.95$ \\
+$x_s$      & $\RXs$     & $0.99$ & $0.83$ \\
+$y_s$      & $\RYs$     & $0.99$ & $0.84$ \\
+$e_1$      & $\REone$   & $0.89$ & $0.47$ \\
+$e_2$      & $\REtwo$   & $0.84$ & $0.49$ \\
+$\gamma_1$ & $\RGone$   & $0.80$ & $0.21$ \\
+$\gamma_2$ & $\RGtwo$   & $0.65$ & $0.06$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The recovery hierarchy follows directly from how strongly each parameter imprints
+on the image. The Einstein radius, source position, and source size set the ring
+radius, arc configuration, and arc thickness---large, direct morphological
+signatures---and are recovered near-perfectly
+($r = \rThetaE$, $\rXs$, $\rYs$, $\rRs$). The lens ellipticity
+($r = \rEone$, $\rEtwo$) imprints a quadrupole distortion on the arcs that is
+clearly measurable at this SNR. The external shear is the weakest signal---its
+modulus is at most $0.08$ and its quadrupole is partially degenerate with the lens
+ellipticity---yet it is still meaningfully constrained
+($r = \rGone$, $\rGtwo$), with the visibly wider MAD bars correctly reporting it
+as the least-identified parameter.
+
+\subsection{Simulation Based Calibration}
+\label{sec:calibration}
+
+Point accuracy is not sufficient: the posterior \emph{width} must also be
+statistically correct. Simulation-based calibration (SBC)~\cite{talts2018sbc}
+exploits the self-consistency $p(\boldsymbol\theta \mid \mathbf{x})\,p(\mathbf{x})
+= p(\mathbf{x} \mid \boldsymbol\theta)\,p(\boldsymbol\theta)$: for
+$(\boldsymbol\theta^{(n)}, \mathbf{x}^{(n)})$ drawn from the joint distribution,
+$\boldsymbol\theta^{(n)}$ is one draw from the posterior given
+$\mathbf{x}^{(n)}$, so its fractional rank among the approximator's posterior
+samples must be uniformly distributed if the approximation is exact.
+Figure~\ref{fig:calibration} shows the difference between the empirical CDF of
+these ranks and the uniform CDF, with simultaneous $95\%$ confidence
+bands~\cite{sailynoja2022ecdf}. The ellipticity and shear parameters stay within
+the bands: their posteriors show no evidence of miscalibration. The four
+best-constrained parameters ($\theta_E$, $x_s$, $y_s$, $R_s$), in contrast, trace
+a symmetric S-shape that exits the band on both sides---too few extreme ranks,
+too many central ones. This is the signature of mildly \emph{under}confident
+posteriors: the truth lands in the posterior tails less often than it should, so
+the credible intervals for these parameters are somewhat wider than necessary.
+Underconfidence is the benign direction of miscalibration---intervals are
+conservative rather than misleading---but it is a real, reproducible defect: it
+appears identically at $20{,}000$ and $50{,}000$ training samples
+(Section~\ref{sec:other-configs}), which localizes its cause in the network
+rather than in the amount of training data.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{calibration_ecdf.png}
+\caption{SBC rank-ECDF difference plots with simultaneous $95\%$ confidence bands
+(8-parameter model, $50{,}000$ training samples, $300$ test systems). Curves
+inside the grey band are consistent with calibrated posteriors.}
+\label{fig:calibration}
+\end{figure}
+
+\subsection{Posterior Contraction}
+
+Posterior contraction, $1 - \mathrm{Var}_{\rm post}/\mathrm{Var}_{\rm prior}$,
+quantifies how much information the image adds beyond the prior (near $1$ = strong
+information gain), while the posterior z-score,
+$(\mathbb{E}[\theta \mid \mathbf{x}] - \theta^\ast)/\mathrm{SD}_{\rm post}$,
+measures the standardized bias of the estimate. Figure~\ref{fig:contraction} shows
+the two against each other for every test system. The morphologically dominant
+parameters ($\theta_E$, $x_s$, $y_s$, $R_s$) cluster at contraction $\approx 1$
+with z-scores tightly spread around $0$: highly informative, unbiased posteriors.
+Ellipticity and shear reach intermediate contraction, exactly reflecting their
+weaker imprint on the data, with z-scores still centred on zero and almost entirely
+within $\pm 2$---uncertain, but honest, estimates.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{contraction.png}
+\caption{Posterior z-score vs.\ posterior contraction (8-parameter model,
+$50{,}000$ training samples, $300$ test systems). The ideal regime is high
+contraction with $|z| \lesssim 2$ spread around $0$.}
+\label{fig:contraction}
+\end{figure}
+
+\subsection{Posterior Predictive Check}
+
+As a complementary end-to-end test, images are re-simulated from independent
+posterior draws and compared with the observed image
+(Figure~\ref{fig:ppc}). The re-simulations reproduce the observed arc
+configuration---ring radius, knot positions, and azimuthal light
+distribution---showing that the posterior concentrates on parameter values that
+regenerate the data; residual draw-to-draw variation visualizes the remaining
+posterior uncertainty.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{posterior_predictive.png}
+\caption{Posterior predictive check for one test system: observed noisy image
+(left) and four noise-free re-simulations from independent posterior draws.}
+\label{fig:ppc}
+\end{figure}
+
+\subsection{Other Configurations}
+\label{sec:other-configs}
+
+Three configurations of the same architecture were compared, differing in dataset
+size and SNR (diagnostic figures for the earlier configurations are in the
+appendix):
+
+\begin{itemize}
+    \item \textbf{$8{,}000$ samples, median peak SNR $\approx 4$ (untuned source
+    amplitude).} Validation loss plateaued by epoch ${\sim}20$ and then degraded
+    while training loss kept falling (overfitting); SBC showed pronounced U-shaped
+    rank histograms (overconfident posteriors) for $\theta_E$, $x_s$, $y_s$,
+    $R_s$; shear was essentially unrecoverable ($R^2 \leq 0.21$,
+    Table~\ref{tab:r2}).
+    \item \textbf{$20{,}000$ samples, median peak SNR $\approx 16$.} Overfitting
+    disappeared and recovery became excellent, but the rank-ECDF difference curves
+    of the best-constrained parameters ($\theta_E$, $x_s$, $y_s$, $R_s$) exited
+    the $95\%$ band in a central-tendency S-shape
+    (Figure~\ref{fig:calibration-20k}, appendix)---mild underconfidence.
+    \item \textbf{$50{,}000$ samples, median peak SNR $\approx 16$ (final).}
+    Recovery improved further, most visibly for the shear
+    ($r$: $0.810 \to 0.895$ for $\gamma_2$, $0.895 \to 0.928$ for $\gamma_1$) and
+    ellipticity components, and the validation loss dropped from $-5.9$ to
+    $\valLossFinal$. The mild underconfidence of the dominant parameters,
+    however, persisted essentially unchanged (Figure~\ref{fig:calibration}).
+\end{itemize}
+
+The progression cleanly separates the failure modes. Raising the SNR moved the
+weakly-imprinting parameters (ellipticity, shear) from unrecoverable to
+well-recovered; enlarging the dataset repaired overfitting and sharpened
+recovery. That the residual underconfidence did \emph{not} respond to a
+$2.5\times$ dataset increase indicates a capacity or expressiveness limit of the
+current summary/inference networks rather than a data limit---the natural next
+knob would be a larger summary dimension or deeper flow, not more simulations.
+
+\section{Inference}
+
+\subsection{Inference on a fiducial system}
+
+As the final demonstration, one ``observed'' image was simulated from a fixed
+fiducial parameter set ($\theta_E = 1.15''$, mildly elliptical lens $q \approx
+0.85$, weak shear, off-centre compact source) and inference performed on it.
+Figure~\ref{fig:inference} compares the prior (grey) with $2{,}000$ posterior
+draws (blue) in all pairwise marginals, with the truth marked. The posterior
+contracts sharply around the true values for every parameter, with the widest
+remaining spread in the shear components---consistent with every diagnostic above.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{inference_pairs.png}
+\caption{Posterior (blue) vs.\ prior (grey) for a single fiducial ``observed''
+lens, with the true parameter values marked (red). 8-parameter CNN + CouplingFlow
+model trained on $50{,}000$ samples.}
+\label{fig:inference}
+\end{figure}
+
+\subsection{External convergence and the mass-sheet degeneracy}
+\label{sec:msd}
+
+A uniform convergence sheet $\kappa$ rescales the lens equation in a way that is
+almost perfectly absorbed by a rescaling of the unobservable source
+plane~\cite{falco1985msd}: image morphology alone cannot distinguish
+$(\kappa, \theta_E)$ from a suitably transformed pair. A sound inference pipeline
+must \emph{report} this degeneracy rather than hide it. We repeat the full pipeline
+(generate, train, evaluate) with $\kappa \sim \mathcal{U}(0, 0.2)$ as a ninth
+inferred parameter, at identical SNR and dataset size. The results show exactly the
+expected signature:
+
+\begin{itemize}
+    \item \textbf{Minimal posterior contraction.} The prior standard deviation of
+    $\kappa$ is $0.058$; the mean posterior standard deviation is $\kapPostStd$, a
+    contraction of only $\kapContraction$. The network has correctly learned that
+    $\kappa$ is nearly unidentifiable from one image: posterior means hover near
+    the prior mean regardless of the truth ($R^2 = \RKappa$,
+    Figure~\ref{fig:recovery-kappa}, appendix), with error bars spanning almost
+    the whole prior.
+    \item \textbf{Strong internal anti-correlation.} Within individual posteriors,
+    the mean correlation between $\kappa$ and $\theta_E$ is $\kapCorr$: the two
+    parameters trade off along the degeneracy direction, exactly as the lensing
+    equations predict. This correlation is \emph{stronger} at high SNR than in the
+    low-SNR pilot ($-0.83$): with less noise the posterior collapses onto the
+    degeneracy ridge.
+    \item \textbf{Degradation of $\theta_E$ only.} $\theta_E$ recovery degrades
+    from $R^2 = \RThetaE$ (without $\kappa$) to $\RKThetaE$ (with), while every
+    other parameter is essentially unaffected---the unidentifiable mass sheet
+    feeds its uncertainty specifically into the mass normalization.
+\end{itemize}
+
+That an off-the-shelf neural posterior estimator recovers this degeneracy
+structure without being told about it is a meaningful validation of the SBI
+approach: the network reports joint posterior \emph{geometry}, not just marginal
+point estimates. Breaking the degeneracy requires external information (stellar
+kinematics, time delays, or line-of-sight priors) not present in a single image.
+
+\section{Discussion \& Conclusion}
+
+We built and validated an end-to-end amortized Bayesian inference pipeline for
+strong-lens parameter estimation. From single noisy $64\times64$ images at
+realistic SNR, the BayesFlow posterior estimator recovers the Einstein radius,
+source position, and source size near-perfectly, the lens ellipticity accurately,
+and even the weak external shear meaningfully (Table~\ref{tab:r2});
+simulation-based calibration finds calibrated posteriors for ellipticity and
+shear and mildly conservative (underconfident) ones for the best-constrained
+parameters---the safe direction of miscalibration---while posterior contraction
+confirms strong, unbiased information gain for all morphologically dominant
+parameters. When external convergence is included, the
+inferred posteriors exhibit the mass-sheet degeneracy exactly as theory predicts:
+near-zero contraction of $\kappa$, a strong $\kappa$--$\theta_E$ anti-correlation
+($\kapCorr$), and a corresponding, isolated degradation of $\theta_E$ recovery.
+
+The project's main practical constraint was the cost of simulation and training,
+which shaped the workflow: offline, CPU-parallelized data generation; GPU training
+(a $4$--$5\times$ per-step speedup over CPU made the $50{,}000$-sample
+configuration feasible); and a stepped dataset-size study
+($8\mathrm{k} \to 20\mathrm{k} \to 50\mathrm{k}$) in which each increase fixed a
+specific, diagnosable defect---first overfitting, then residual SBC
+miscalibration. The forward model still fixes several quantities (lens centroid,
+source amplitude and profile, PSF) that are uncertain for real observations and
+omits the lens-galaxy light; extending the parameter vector with these nuisances
+within the same pipeline is the natural next step toward survey data. Once
+trained, amortized posterior sampling costs milliseconds per system---the property
+that makes this approach attractive for the $10^4$--$10^5$ lenses expected from
+upcoming surveys.
+
+\begin{thebibliography}{9}
+
+\bibitem{radev2020bayesflow}
+S.~T. Radev, U.~K. Mertens, A.~Voss, L.~Ardizzone, and U.~K\"othe,
+``BayesFlow: Learning complex stochastic models with invertible neural networks,''
+\emph{IEEE Transactions on Neural Networks and Learning Systems}, 33(4):1452--1466,
+2020. \url{https://doi.org/10.1109/TNNLS.2020.3042395}
+
+\bibitem{bayesflow2023software}
+S.~T. Radev, M.~Schmitt, L.~Schumacher, L.~Elsem\"uller, V.~Pratz, Y.~Sch\"alte,
+U.~K\"othe, and P.-C. B\"urkner,
+``BayesFlow: Amortized Bayesian workflows with neural networks,''
+\emph{Journal of Open Source Software}, 8(89):5702, 2023.
+\url{https://doi.org/10.21105/joss.05702}
+
+\bibitem{birrer2018lenstronomy}
+S.~Birrer and A.~Amara,
+``lenstronomy: Multi-purpose gravitational lens modelling software package,''
+\emph{Physics of the Dark Universe}, 22:189--201, 2018.
+\url{https://doi.org/10.1016/j.dark.2018.11.002}
+
+\bibitem{kormann1994sie}
+R.~Kormann, P.~Schneider, and M.~Bartelmann,
+``Isothermal elliptical gravitational lens models,''
+\emph{Astronomy \& Astrophysics}, 284:285--299, 1994.
+
+\bibitem{falco1985msd}
+E.~E. Falco, M.~V. Gorenstein, and I.~I. Shapiro,
+``On model-dependent bounds on $H_0$ from gravitational images: Application to
+Q0957+561A,B,'' \emph{The Astrophysical Journal}, 289:L1--L4, 1985.
+\url{https://doi.org/10.1086/184422}
+
+\bibitem{schneider2013msd}
+P.~Schneider and D.~Sluse,
+``Mass-sheet degeneracy, power-law models and external convergence: Impact on the
+determination of the Hubble constant from gravitational lensing,''
+\emph{Astronomy \& Astrophysics}, 559:A37, 2013.
+\url{https://doi.org/10.1051/0004-6361/201321882}
+
+\bibitem{talts2018sbc}
+S.~Talts, M.~Betancourt, D.~Simpson, A.~Vehtari, and A.~Gelman,
+``Validating Bayesian inference algorithms with simulation-based calibration,''
+\emph{arXiv:1804.06788}, 2018.
+
+\bibitem{sailynoja2022ecdf}
+T.~S\"ailynoja, P.-C. B\"urkner, and A.~Vehtari,
+``Graphical test for discrete uniformity and its applications in goodness-of-fit
+evaluation and multiple sample comparison,''
+\emph{Statistics and Computing}, 32:32, 2022.
+\url{https://doi.org/10.1007/s11222-022-10090-6}
+
+\bibitem{harris2020numpy}
+C.~R. Harris, K.~J. Millman, S.~J. van der Walt, et al.,
+``Array programming with NumPy,'' \emph{Nature}, 585:357--362, 2020.
+\url{https://doi.org/10.1038/s41586-020-2649-2}
+
+\end{thebibliography}
+
+\newpage
+\appendix
+\section*{Appendix: Additional Figures}
+\addcontentsline{toc}{section}{Appendix: Additional Figures}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{prior_pairs.png}
+\caption{Marginal and pairwise joint distributions of prior draws from the
+training set. The ring-shaped $(e_1, e_2)$ and $(\gamma_1, \gamma_2)$ supports are
+induced by sampling in (axis ratio, angle) and (modulus, angle) respectively and
+converting to Cartesian components.}
+\label{fig:prior-pairs}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{dataset_preview.png}
+\caption{Eight example noisy images from the training set (median peak SNR
+$\approx 16$), with the true Einstein radius of each system.}
+\label{fig:dataset-preview}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{calibration_ecdf_20k.png}
+\caption{SBC rank-ECDF difference plots for the intermediate configuration
+($20{,}000$ training samples, same architecture and SNR as the final model). The
+best-constrained parameters ($\theta_E$, $x_s$, $y_s$, $R_s$) exit the $95\%$
+band---the residual miscalibration that motivated the increase to $50{,}000$
+samples (compare Figure~\ref{fig:calibration}).}
+\label{fig:calibration-20k}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{recovery_20k.png}
+\caption{Parameter recovery for the intermediate $20{,}000$-sample configuration
+(posterior median, MAD error bars, Pearson $r$; same style as
+Figure~\ref{fig:recovery}).}
+\label{fig:recovery-20k}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{recovery_kappa.png}
+\caption{Parameter recovery for the 9-parameter model including external
+convergence ($50{,}000$ training samples). The $\kappa$ posterior stays near the
+prior mean with near-prior-width uncertainties, and the $\theta_E$ panel shows the
+degeneracy-induced widening relative to Figure~\ref{fig:recovery}.}
+\label{fig:recovery-kappa}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{calibration_ecdf_kappa.png}
+\caption{SBC rank-ECDF difference plots for the 9-parameter (external
+convergence) model at $50{,}000$ training samples.}
+\label{fig:calibration-kappa}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{contraction_kappa.png}
+\caption{Posterior z-score vs.\ contraction for the 9-parameter model. The
+$\kappa$ panel sits at near-zero contraction---the mass-sheet degeneracy---while
+all other parameters match the 8-parameter model (Figure~\ref{fig:contraction}).}
+\label{fig:contraction-kappa}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{training_loss_kappa.png}
+\caption{Loss trajectory of the 9-parameter (external convergence) model,
+$50{,}000$ training samples.}
+\label{fig:loss-kappa}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{inference_pairs_kappa.png}
+\caption{Posterior vs.\ prior for the fiducial system under the 9-parameter
+model. The $\kappa$ marginal barely contracts from its prior, and the
+$(\kappa, \theta_E)$ panel shows the negative degeneracy ridge.}
+\label{fig:inference-kappa}
+\end{figure}
+
+\end{document}

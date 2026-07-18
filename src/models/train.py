@@ -90,10 +90,26 @@ def build_workflow():
     )
 
 
+def print_device_info():
+    """Report which device training will actually run on. The Keras 3 torch
+    backend picks this automatically (GPU if `torch.cuda.is_available()`,
+    else CPU) -- there is nothing else to configure, but it is easy to think
+    a run is using the GPU when it silently isn't (e.g. CPU-only torch wheel
+    installed), so print it explicitly every run."""
+    print(f"Keras backend: {keras.backend.backend()}")
+    if keras.backend.backend() == "torch":
+        import torch
+        if torch.cuda.is_available():
+            print(f"Torch device: cuda ({torch.cuda.get_device_name(0)})")
+        else:
+            print("Torch device: cpu (no CUDA GPU detected -- see "
+                  "requirements.txt if you expected GPU acceleration)")
+
+
 def main():
     keras.utils.set_random_seed(C.SEED)
 
-    print(f"Keras backend: {keras.backend.backend()}")
+    print_device_info()
     print("Loading offline data ...")
     train_data, val_data = load_offline_data()
     print(f"  train images: {train_data['image'].shape}, "
@@ -107,17 +123,41 @@ def main():
     # config.EPOCHS (fewer epochs = faster but less accurate) and
     # config.N_TRAIN (fewer training images = both faster to simulate AND
     # faster per epoch). Both live in src/config.py.
+    # Early stopping guards against the late-epoch overfitting seen in the
+    # first (8k-sample) runs: if val loss stops improving for `patience`
+    # epochs, training halts and the best-val-loss weights are restored.
+    # With the current 50k dataset val loss decreases monotonically, so this
+    # normally never triggers -- it is a safety net, not the schedule.
+    early_stop = keras.callbacks.EarlyStopping(
+        monitor="val_loss", patience=10, restore_best_weights=True, verbose=1,
+    )
     history = workflow.fit_offline(
         train_data,
         epochs=C.EPOCHS,
         batch_size=C.BATCH_SIZE,
         validation_data=val_data,
         verbose=2,
+        callbacks=[early_stop],
     )
 
     os.makedirs(C.MODEL_DIR, exist_ok=True)
     workflow.approximator.save(C.MODEL_FILE)
     print(f"Saved trained approximator -> {C.MODEL_FILE}")
+
+    # Persist the raw loss history so the loss figure can be re-styled later
+    # without retraining (previously the numbers lived only in the terminal).
+    suffix_hist = "_kappa" if C.INCLUDE_KAPPA else ""
+    hist_path = os.path.join(C.MODEL_DIR, f"history{suffix_hist}.npz")
+    np.savez(hist_path, **{k: np.asarray(v) for k, v in history.history.items()})
+    print(f"Saved loss history -> {hist_path}")
+
+    # Persist the loss curves. Previously only the notebook did this, so a
+    # CLI run's losses existed nowhere but the terminal scrollback (see
+    # RESULTS.md, Run 3). The "_kappa" suffix keeps the two model variants'
+    # plots from overwriting each other.
+    from src.evaluation import plots
+    suffix = "_kappa" if C.INCLUDE_KAPPA else ""
+    plots.plot_training_history(history, fname=f"training_loss{suffix}.png")
 
     # Returning both lets a notebook keep the trained workflow in memory and
     # go straight to evaluation (see notebooks/run_pipeline.ipynb) without a

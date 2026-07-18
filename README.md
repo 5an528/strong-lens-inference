@@ -221,12 +221,16 @@ the file-by-file "what changed and why".
   changing it does, and includes a runnable with-vs-without-kappa comparison. This is
   the recommended place to explore the project and see results. It has been executed
   end to end (on a shrunk dataset) to confirm every cell runs without errors.
-- **Local, CPU/RAM-only setup.** Given the 4GB-VRAM constraint, the project never uses
-  a GPU: the Keras 3 backend is `torch` (CPU build, `requirements.txt` installs it from
-  the CPU wheel index), and the default dataset/network sizes in `config.py` were
-  chosen to train in a reasonable time on a CPU-only laptop. A dedicated `.venv/` was
-  set up inside this folder and all of the above was verified to run in it (dataset
-  generation, training, evaluation, and the notebook).
+- **Runs on CPU or GPU, no code changes needed.** The Keras 3 backend is `torch`;
+  `requirements.txt` installs the CUDA-enabled wheel (cu124) by default, and the torch
+  backend automatically trains on the GPU whenever `torch.cuda.is_available()` is True,
+  falling back to CPU otherwise. `python main.py train` / `python -m src.models.train`
+  print which device was picked at the start of each run. Dataset generation
+  (lenstronomy) is always CPU-bound regardless -- only training and posterior sampling
+  benefit from a GPU. If you don't have an NVIDIA GPU, swap the `--extra-index-url` line
+  in `requirements.txt` for the CPU wheel index instead. A dedicated `.venv/` was set up
+  inside this folder and all of the above was verified to run in it (dataset generation,
+  training, evaluation, and the notebook).
 - The original `data/raw/lens_images.npy` / `lens_params.npy` (from the first,
   1-parameter SIS demo) are left untouched but are no longer used by anything --
   they don't match the current 8/9-parameter model. New datasets go to

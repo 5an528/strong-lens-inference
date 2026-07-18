@@ -9,3 +9,15 @@ __pycache__/
 # running `python main.py generate` / `python main.py train` (see README).
 data/processed/
 data/models/
+
+# LaTeX build artifacts (report/report.tex and the compiled PDF are tracked)
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.synctex.gz
+report/*.fls
+report/*.fdb_latexmk
+
+# personal Claude Code settings
+.claude/settings.local.json
