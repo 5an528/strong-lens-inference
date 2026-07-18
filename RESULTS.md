@@ -234,14 +234,89 @@ Only theta_E is affected by adding kappa — the degeneracy is specific to the
 
 ---
 
+## Run 6 — 8 parameters, GPU, 50k dataset (2026-07-18, overnight)
+
+**Changes vs Run 4:** N_TRAIN 20000 → 50000. Early stopping added (patience 10,
+never triggered — best epoch = 40/40). Diagnostics switched to the
+BayesFlow-native reference set: recovery (median + MAD + Pearson r), SBC
+rank-ECDF difference with 95% bands, z-score vs contraction, prior pairplot,
+fiducial-system posterior-vs-prior corner plot.
+**Hardware:** RTX 3060. Generation: 50k+2k+300 in ~1 min (15 workers).
+Training: **123 min** (118 ms/step), 40 epochs.
+
+### Dataset SNR report
+```
+peak SNR: min=4.6  median=16.1  max=27.4    (target ~10-30 ✓)
+```
+
+### Training loss
+Epoch 1: train 8.86 / val 6.83 → Epoch 40: train −6.19 / **val −8.05** (best =
+final; monotone decrease, no overfitting; 20k run ended at val −5.87).
+
+### Recovery (300 test systems; vs Run 4 at 20k)
+| Parameter | r (50k) | R² (50k) | R² (20k) |
+|---|---|---|---|
+| theta_E | 0.999 | 1.00 | 1.00 |
+| x_s | 0.999 | 1.00 | 0.99 |
+| y_s | 0.999 | 1.00 | 0.99 |
+| R_s | 0.999 | 1.00 | 1.00 |
+| e1 | 0.970 | 0.94 | 0.89 |
+| e2 | 0.960 | 0.92 | 0.84 |
+| gamma1 | 0.928 | 0.86 | 0.80 |
+| gamma2 | 0.895 | 0.80 | 0.65 |
+
+### Calibration (SBC rank-ECDF difference, 95% simultaneous bands)
+e1/e2/gamma1/gamma2: inside the band = calibrated. theta_E/x_s/y_s/R_s: symmetric
+S-shape exiting the band (central ranks over-represented) = **mild
+underconfidence** (conservative posteriors). Same shape at 20k and 50k → it is a
+network-capacity effect, NOT a data-volume effect. Next knob if needed:
+SUMMARY_DIM / COUPLING_DEPTH, not N_TRAIN.
+
+### Fiducial inference (theta_E=1.15, q~0.85 lens, weak shear)
+All truths within ~1.5 posterior std; theta_E posterior 1.152 ± 0.008.
+
+---
+
+## Run 7 — 9 parameters (kappa), GPU, 50k dataset (2026-07-18, overnight)
+
+Same config as Run 6, `SLI_INCLUDE_KAPPA=1`. Training: **123 min**, 40 epochs,
+final val loss **−6.79**. SNR: min=2.3 median=16.6 max=27.5.
+
+### Mass-sheet degeneracy analysis (the key result)
+```
+kappa prior std           : 0.058
+kappa mean posterior std  : 0.048
+contraction               : +0.16   (kappa ~unconstrained, as theory demands)
+mean corr(kappa, theta_E) : -0.96   (vs -0.93 at 20k, -0.83 at 8k low-SNR —
+                                     posterior collapses onto the degeneracy
+                                     ridge as data quality improves)
+```
+
+### Recovery with kappa (vs Run 6 without)
+theta_E R² **0.94** vs 1.00 (degeneracy feeds uncertainty into theta_E);
+kappa R² 0.21 (posterior ≈ prior); all others essentially unchanged
+(e1 0.92, e2 0.90, gamma1 0.85, gamma2 0.80, x_s/y_s 0.99, R_s 0.98).
+
+### Fiducial inference (kappa truth 0.05)
+kappa posterior 0.082 ± 0.054 (spans most of the prior — honest); theta_E
+1.108 ± 0.065 (8× wider than without kappa: the degeneracy at work).
+
+**Figures:** full reference-style set in `figures/` (`*_kappa.png` variants).
+**Report:** rewritten in the reference-report structure → `report/report.pdf`
+(18 pages). Logs: scratchpad `logs/{gen8,train8,eval8,genk,traink,evalk}.log`.
+
+---
+
 ## Open items / next steps
 
 1. ~~Set SOURCE_AMP = 150~~ ✓ done (Run 4)
 2. ~~Raise N_TRAIN to 20000~~ ✓ done (Run 4)
 3. ~~Re-run kappa comparison at corrected SNR~~ ✓ done (Run 5)
-4. ~~Update report numbers~~ ✓ done (report/report.pdf, 9 pages)
-5. Optional: EPOCHS could be trimmed (~30) — val loss nearly flat by then; or
-   raise N_TRAIN further (50k) if even tighter calibration is wanted.
+4. ~~Raise N_TRAIN to 50000 + reference-style diagnostics + rewritten report~~
+   ✓ done (Runs 6-7, report/report.pdf 18 pages)
+5. Optional: the residual SBC underconfidence for theta_E/x_s/y_s/R_s did not
+   respond to more data — if tighter calibration is wanted, raise SUMMARY_DIM
+   (48 → 96) and/or COUPLING_DEPTH (4 → 6) and retrain.
 
 ---
 
