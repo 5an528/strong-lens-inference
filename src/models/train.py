@@ -123,17 +123,33 @@ def main():
     # config.EPOCHS (fewer epochs = faster but less accurate) and
     # config.N_TRAIN (fewer training images = both faster to simulate AND
     # faster per epoch). Both live in src/config.py.
+    # Early stopping guards against the late-epoch overfitting seen in the
+    # first (8k-sample) runs: if val loss stops improving for `patience`
+    # epochs, training halts and the best-val-loss weights are restored.
+    # With the current 50k dataset val loss decreases monotonically, so this
+    # normally never triggers -- it is a safety net, not the schedule.
+    early_stop = keras.callbacks.EarlyStopping(
+        monitor="val_loss", patience=10, restore_best_weights=True, verbose=1,
+    )
     history = workflow.fit_offline(
         train_data,
         epochs=C.EPOCHS,
         batch_size=C.BATCH_SIZE,
         validation_data=val_data,
         verbose=2,
+        callbacks=[early_stop],
     )
 
     os.makedirs(C.MODEL_DIR, exist_ok=True)
     workflow.approximator.save(C.MODEL_FILE)
     print(f"Saved trained approximator -> {C.MODEL_FILE}")
+
+    # Persist the raw loss history so the loss figure can be re-styled later
+    # without retraining (previously the numbers lived only in the terminal).
+    suffix_hist = "_kappa" if C.INCLUDE_KAPPA else ""
+    hist_path = os.path.join(C.MODEL_DIR, f"history{suffix_hist}.npz")
+    np.savez(hist_path, **{k: np.asarray(v) for k, v in history.history.items()})
+    print(f"Saved loss history -> {hist_path}")
 
     # Persist the loss curves. Previously only the notebook did this, so a
     # CLI run's losses existed nowhere but the terminal scrollback (see
