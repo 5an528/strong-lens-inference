@@ -1,19 +1,10 @@
 """
 main.py
 ========
-REWRITTEN. WHY: this file used to hold a single hard-coded function,
-`plot_simulated_lenses`, that only knew how to look at the old 3-parameter
-SIS demo dataset in data/raw/. That plotting code has moved to
-src/evaluation/plots.py (where the project's own folder layout says
-plotting code belongs); this file is now the thin command-line entry point
-the README's "Workflow" section describes, wiring the simulator, training
-and evaluation modules together into runnable steps.
-
-The OLD data/raw/lens_images.npy + lens_params.npy files are left on disk
-untouched (first two git commits' output) but are NOT used by anything
-below -- they came from the old 1-parameter SIS toy model and their shape
-does not match the current 8/9-parameter SIE+SHEAR(+CONVERGENCE) model. New
-datasets are written to data/processed/ instead (see src/config.py).
+The thin command-line entry point the README's "Workflow" section describes,
+wiring the simulator, training and evaluation modules together into runnable
+steps. Plotting lives in src/evaluation/plots.py; generated datasets are
+written to data/processed/ (see src/config.py).
 
 Usage (from the project root, with the virtual environment activated):
     python main.py generate    # precompute the simulated dataset (CPU, slow)
@@ -23,10 +14,6 @@ Usage (from the project root, with the virtual environment activated):
     python main.py demo        # simulate + plot a single random lens, no
                                 # dataset/training required -- the fastest way
                                 # to sanity-check the simulator after any change.
-
-For interactive exploration (recommended once you're past the "does this
-run at all" stage) use notebooks/run_pipeline.ipynb instead, which runs the
-same steps but keeps the trained `workflow` object in memory for evaluation.
 """
 import argparse
 import os

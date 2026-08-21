@@ -19,10 +19,9 @@ WHAT this file does, matching the assignment's evaluation requirements:
                             diagnostic in src/evaluation/plots.py against the
                             held-out test set and saves the figures.
 
-Run (right after training, in the SAME process/session, e.g. from
-notebooks/run_pipeline.ipynb) so the trained `workflow` object stays in
-memory -- reloading a saved model from disk works too but the notebook path
-is the most reliable, matching how BayesFlow workflows are typically used.
+Run right after training, in the SAME process/session, so the trained
+`workflow` object stays in memory -- reloading a saved model from disk works
+too, matching how BayesFlow workflows are typically used.
 """
 import os
 import numpy as np

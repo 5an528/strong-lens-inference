@@ -302,8 +302,6 @@ kappa posterior 0.082 ± 0.054 (spans most of the prior — honest); theta_E
 1.108 ± 0.065 (8× wider than without kappa: the degeneracy at work).
 
 **Figures:** full reference-style set in `figures/` (`*_kappa.png` variants).
-**Report:** rewritten in the reference-report structure → `report/report.pdf`
-(18 pages). Logs: scratchpad `logs/{gen8,train8,eval8,genk,traink,evalk}.log`.
 
 ---
 
@@ -312,8 +310,8 @@ kappa posterior 0.082 ± 0.054 (spans most of the prior — honest); theta_E
 1. ~~Set SOURCE_AMP = 150~~ ✓ done (Run 4)
 2. ~~Raise N_TRAIN to 20000~~ ✓ done (Run 4)
 3. ~~Re-run kappa comparison at corrected SNR~~ ✓ done (Run 5)
-4. ~~Raise N_TRAIN to 50000 + reference-style diagnostics + rewritten report~~
-   ✓ done (Runs 6-7, report/report.pdf 18 pages)
+4. ~~Raise N_TRAIN to 50000 + reference-style diagnostics~~
+   ✓ done (Runs 6-7)
 5. Optional: the residual SBC underconfidence for theta_E/x_s/y_s/R_s did not
    respond to more data — if tighter calibration is wanted, raise SUMMARY_DIM
    (48 → 96) and/or COUPLING_DEPTH (4 → 6) and retrain.
@@ -323,6 +321,4 @@ kappa posterior 0.082 ± 0.054 (spans most of the prior — honest); theta_E
 ## Where the raw sources live
 
 - R² values: subplot titles in `figures/recovery.png`
-- Old notebook with all saved CPU-run outputs: `git show main:notebooks/run_pipeline.ipynb`
-- Report with full analysis: `report/report.pdf`
 - Trained models: `data/models/*.keras` (git-ignored, reproducible)

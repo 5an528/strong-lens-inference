@@ -55,12 +55,9 @@ StrongLensInference/
 │       └── plots.py
 │
 ├── data/
-│   ├── raw/
-│   └── processed/
+│   └── processed/          # generated datasets (git-ignored)
 │
-├── notebooks/
 ├── figures/
-├── presentation/
 │
 ├── requirements.txt
 ├── README.md
@@ -216,11 +213,6 @@ the file-by-file "what changed and why".
 - **CLI entry point** (`main.py`, rewritten): `python main.py {demo, generate, train,
   evaluate}`. `demo` simulates and plots one random lens without needing a dataset --
   the fastest way to check the simulator still works after a config change.
-- **Interactive notebook** (`notebooks/run_pipeline.ipynb`, new): runs the whole
-  pipeline step by step with explanations, shows every tunable parameter and what
-  changing it does, and includes a runnable with-vs-without-kappa comparison. This is
-  the recommended place to explore the project and see results. It has been executed
-  end to end (on a shrunk dataset) to confirm every cell runs without errors.
 - **Runs on CPU or GPU, no code changes needed.** The Keras 3 backend is `torch`;
   `requirements.txt` installs the CUDA-enabled wheel (cu124) by default, and the torch
   backend automatically trains on the GPU whenever `torch.cuda.is_available()` is True,
@@ -231,10 +223,8 @@ the file-by-file "what changed and why".
   in `requirements.txt` for the CPU wheel index instead. A dedicated `.venv/` was set up
   inside this folder and all of the above was verified to run in it (dataset generation,
   training, evaluation, and the notebook).
-- The original `data/raw/lens_images.npy` / `lens_params.npy` (from the first,
-  1-parameter SIS demo) are left untouched but are no longer used by anything --
-  they don't match the current 8/9-parameter model. New datasets go to
-  `data/processed/` (git-ignored, regenerate with `python main.py generate`).
+- Generated datasets go to `data/processed/` (git-ignored, regenerate with
+  `python main.py generate`).
 
 ### How to run it
 
@@ -250,13 +240,8 @@ python main.py train                # train the BayesFlow approximator
 python main.py evaluate             # recovery / calibration / posterior-predictive plots
 ```
 
-Or, for the guided/interactive version with explanations and tunable-parameter notes:
-open `notebooks/run_pipeline.ipynb` with the `.venv` kernel (the notebook's first cell
-has the one-line kernel-registration command).
-
 ### Where to change things
 
 Every tunable number (noise level, prior ranges, `INCLUDE_KAPPA`, dataset size, network
 size, training length, ...) lives in `src/config.py`, with a comment next to each value
-explaining what changing it does. `notebooks/run_pipeline.ipynb` Section 9 has the same
-information as a quick-reference table.
+explaining what changing it does.

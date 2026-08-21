@@ -77,24 +77,22 @@ IMAGE_SCALE = 4.0
 #      True  -> 9 parameters, including the external convergence kappa.
 #    Default is False so the local/CPU pipeline stays small; flip it to True
 #    and re-run `generate` + `train` to reproduce the "with kappa" version and
-#    compare (see notebooks/run_pipeline.ipynb, Section 7, for exactly this
-#    comparison and the mass-sheet-degeneracy discussion it is meant to show).
+#    compare (this is the mass-sheet-degeneracy comparison the assignment asks
+#    about).
 # ----------------------------------------------------------------------------
 # IMPORTANT: PARAM_NAMES/NUM_PARAMS just below are computed ONCE, right when
 # this file is first imported. Editing INCLUDE_KAPPA here and re-running a
 # script (`python main.py generate`) picks the change up correctly, because
 # that starts a fresh Python process. But flipping `config.INCLUDE_KAPPA`
-# from inside an already-running notebook cell will NOT update PARAM_NAMES
+# from inside an already-running process will NOT update PARAM_NAMES
 # retroactively (Python does not re-run this file just because you changed
 # an attribute on the already-imported module) -- you would silently keep
 # training/evaluating an 8-parameter model.
 #
 # The default (False) can be overridden with the SLI_INCLUDE_KAPPA=1
-# environment variable, read once at import time, precisely so that
-# notebooks/run_pipeline.ipynb can launch a *separate* `python main.py ...`
-# subprocess with that variable set to get a clean, fully-independent 9
-# parameter run -- without editing this file or restarting the notebook
-# kernel. See notebooks/run_pipeline.ipynb, Section 7, for that comparison.
+# environment variable, read once at import time, so a caller can launch a
+# *separate* `python main.py ...` subprocess with that variable set to get a
+# clean, fully-independent 9-parameter run -- without editing this file.
 INCLUDE_KAPPA = os.environ.get("SLI_INCLUDE_KAPPA", "0") == "1"
 
 # Order matters: this fixes the column order of every theta array/vector used
@@ -175,8 +173,7 @@ DATA_DIR = os.path.join("data", "processed")
 MODEL_DIR = os.path.join("data", "models")
 # Filenames carry a "_kappa" suffix when INCLUDE_KAPPA is on, so a
 # with-kappa run and a without-kappa run never overwrite each other's
-# dataset/model files -- this is what lets notebooks/run_pipeline.ipynb
-# Section 7 compare both versions side by side.
+# dataset/model files, and both versions can be compared side by side.
 _suffix = "_kappa" if INCLUDE_KAPPA else ""
 DATA_FILE = f"lens_dataset{_suffix}.npz"          # theta + images for train/val.
 TEST_FILE = f"lens_testset{_suffix}.npz"          # held-out systems for diagnostics.

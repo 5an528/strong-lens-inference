@@ -159,10 +159,10 @@ def main():
     suffix = "_kappa" if C.INCLUDE_KAPPA else ""
     plots.plot_training_history(history, fname=f"training_loss{suffix}.png")
 
-    # Returning both lets a notebook keep the trained workflow in memory and
-    # go straight to evaluation (see notebooks/run_pipeline.ipynb) without a
-    # separate save/load round trip, which is the most reliable way to run
-    # evaluation right after training in the same session.
+    # Returning both lets a caller keep the trained workflow in memory and go
+    # straight to evaluation without a separate save/load round trip, which is
+    # the most reliable way to run evaluation right after training in the same
+    # session.
     return workflow, history
 
 
